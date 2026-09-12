@@ -45,6 +45,30 @@ export interface SharpnessMeasurement {
 }
 
 /**
+ * 复用的临时画布与灰度缓冲。
+ *
+ * 原来每次调用都新建一个 canvas + Float64Array。静态照片路径一次只跑一遍，
+ * 无所谓；但实时模式是**周期性重复调用**的（见 CLAUDE.md 的抽帧模糊检测），
+ * 每次重新分配一块 160×160 的画布和 25.6k 个 double 是纯粹的浪费。
+ *
+ * 懒建而不是在模块顶层建：这个模块可能整场都不被用到，不该在 import 时
+ * 就创建一个 canvas。这里是同步调用，不存在重入。
+ */
+let scratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null
+let luma: Float64Array | null = null
+
+function getScratch(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  if (scratch) return scratch
+  const canvas = document.createElement('canvas')
+  canvas.width = CROP_SIZE
+  canvas.height = CROP_SIZE
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return null
+  scratch = { canvas, ctx }
+  return scratch
+}
+
+/**
  * 量一张图里人脸区域的清晰度。
  *
  * 需要真正读像素，所以必须拿到 ImageBitmap（关键点本身不含像素信息）。
@@ -58,11 +82,9 @@ export function measureSharpness(
   const box = faceBox(face)
   if (!box) return null
 
-  const canvas = document.createElement('canvas')
-  canvas.width = CROP_SIZE
-  canvas.height = CROP_SIZE
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return null
+  const s = getScratch()
+  if (!s) return null
+  const { ctx } = s
 
   // 把（外扩后的）人脸框拉伸铺满 CROP_SIZE，顺带完成分辨率归一
   ctx.imageSmoothingEnabled = true
@@ -92,19 +114,20 @@ export function measureSharpness(
   }
 
   // 转灰度并算均值
-  const luma = new Float64Array(CROP_SIZE * CROP_SIZE)
+  luma ??= new Float64Array(CROP_SIZE * CROP_SIZE)
+  const gray = luma
   let sum = 0
-  for (let i = 0, p = 0; i < luma.length; i++, p += 4) {
+  for (let i = 0, p = 0; i < gray.length; i++, p += 4) {
     // Rec.709 亮度权重
     const y = 0.2126 * data[p]! + 0.7152 * data[p + 1]! + 0.0722 * data[p + 2]!
-    luma[i] = y
+    gray[i] = y
     sum += y
   }
-  const mean = sum / luma.length
+  const mean = sum / gray.length
 
   let sdSum = 0
-  for (const y of luma) sdSum += (y - mean) * (y - mean)
-  const lumaSd = Math.sqrt(sdSum / luma.length)
+  for (const y of gray) sdSum += (y - mean) * (y - mean)
+  const lumaSd = Math.sqrt(sdSum / gray.length)
 
   // 拉普拉斯卷积，只统计内部像素（边缘少一圈邻居）
   let lapSum = 0
@@ -117,7 +140,7 @@ export function measureSharpness(
         for (let kx = -1; kx <= 1; kx++) {
           const k = LAPLACIAN[ky + 1]![kx + 1]!
           if (k === 0) continue
-          acc += k * luma[(y + ky) * CROP_SIZE + (x + kx)]!
+          acc += k * gray[(y + ky) * CROP_SIZE + (x + kx)]!
         }
       }
       lapSum += acc
