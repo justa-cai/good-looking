@@ -1,4 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+
+const pkg = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
+) as { dependencies: Record<string, string> }
 
 /**
  * GitHub Pages 部署在子路径下，base 必须是仓库名。
@@ -9,6 +15,16 @@ const REPO_NAME = 'good-looking'
 
 export default defineConfig({
   base: `/${REPO_NAME}/`,
+
+  define: {
+    /**
+     * MediaPipe 的 JS 由 Vite 从 node_modules 打包，但 wasm 在运行时从 CDN 拉。
+     * 两者版本必须严格一致，否则会出现很难定位的加载失败。
+     * 这里从 package.json 读，保证永远跟依赖同步，不会写死一个会过期的版本号。
+     */
+    __MEDIAPIPE_VERSION__: JSON.stringify(pkg.dependencies['@mediapipe/tasks-vision']),
+  },
+
   build: {
     target: 'es2022',
     // 模型与 wasm 体积大，别让 Vite 内联成 base64 把 JS 撑爆

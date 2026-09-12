@@ -50,9 +50,38 @@
 ### MediaPipe 资源 CDN（已核实可访问，返回 206）
 
 - wasm 目录：`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm/`
-- 模型：`https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`
+- 模型：`https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`（3.6 MB）
 
 版本号写在 URL 里，跟着 npm 包的版本一起升，不要漏改。
+
+### ⚠️ 本机浏览器的 GPU 性能数据不可信
+
+开发机上的 Chrome（playwright / CDP 常驻）跑在 `--headless --disable-gpu --use-gl=disabled` 下，
+WebGL renderer 实测是 **SwiftShader（纯软件光栅化）**，宿主那块 AMD Radeon HD 7850 没被用上。
+
+所以：**在本机测出的任何「GPU 比 CPU 快/慢」的结论都不成立**，不要据此改代码。
+需要 GPGPU 性能数据时必须换到有真实硬件加速的设备上测。
+
+### 后端选择：运行时实测，不写死
+
+`face/landmarker.ts` 默认 `delegate: 'auto'` —— 两个后端各建一次、各跑 3 帧计时，留下快的那个。
+
+原因是没法预判：MediaPipe 的 GPU delegate 需要把结果从显存读回 CPU（`ReadPixels`），
+在软件渲染下实测比 CPU **慢 4.7 倍**（217ms vs 46ms），但在真实硬件上又会反过来。
+既然开发机测不出有效结论，就让它到用户的设备上自己量。代价是首次加载多约 1s。
+
+实测（本机，SwiftShader）：
+| 输入最长边 | 单帧耗时（CPU） |
+|---|---|
+| 1025px | 42 ms |
+| 512px | 34 ms |
+| 256px | 32 ms |
+
+缩放对耗时影响很小（模型内部有自己的输入尺寸），所以 `MAX_DIM` 保持 1280，
+换取更稳的关键点定位。
+
+**给关键点做改动后务必验证两件事**：478 个点齐全；索引语义没串
+（用 `tmp/` 里的脚本在真人照片上画出标注再肉眼核对，别只看数字）。
 
 ### ⚠️ GitHub Pages 没有 COOP/COEP，SharedArrayBuffer 不可用
 
