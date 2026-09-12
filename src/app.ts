@@ -27,7 +27,7 @@ import { createFrameLoop, frameDriver, type FrameLoop } from './live/loop.ts'
 import { createLiveSession, type LiveFrame } from './live/session.ts'
 import { listCachedModels } from './model/cache.ts'
 import { createLiveView, type LiveUiState } from './ui/live.ts'
-import { renderModelCard, type ModelCardState } from './ui/model_card.ts'
+import { fmtMB, renderModelCard, type ModelCardState } from './ui/model_card.ts'
 import { drawOverlay } from './ui/overlay.ts'
 import { renderReport } from './ui/report.ts'
 
@@ -259,15 +259,21 @@ export function mountApp(): void {
       const cl = await loadClassifierModule()
 
       if (!cl.isLoaded()) {
-        // 进度回调会来几百次（54 MB），每次重画 DOM 太浪费，
-        // 只在百分比变化时才重画
-        let lastPct = -1
+        // 进度回调会来几百次（54 MB），每次重画 DOM 太浪费。
+        // 判据是「界面上那个数字会不会变」—— 所以有总长时按百分比、没有总长时按
+        // MB 档位。⚠️ 不能只按百分比：响应被压缩时（GitHub Pages 会给 .onnx 加
+        // gzip，见 cache.ts）total 恒为 null，百分比就恒等于同一个值，
+        // 卡片会永远停在第一次的那句话上，用户全程看不到任何进度。
+        let lastKey = ''
         await cl.loadClassifier({
           onProgress: ({ received, total }) => {
             if (!alive()) return
-            const pct = total && total > 0 ? Math.floor((received / total) * 100) : -2
-            if (pct === lastPct) return
-            lastPct = pct
+            const key =
+              total && total > 0
+                ? `p${Math.floor((received / total) * 100)}`
+                : `m${fmtMB(received)}`
+            if (key === lastKey) return
+            lastKey = key
             showModelCard({ kind: 'loading', received, total })
           },
         })

@@ -45,7 +45,12 @@ export interface ModelCardHandlers {
   readonly onStart: () => void
 }
 
-function fmtMB(bytes: number): string {
+/**
+ * 体积的显示格式（MiB，一位小数）。导出是为了让调用方能拿它当**重画的判据** ——
+ * 进度回调一秒钟来几十次，只在「这个数字会变」时才该碰 DOM。
+ * 用同一个函数算判据，格式改了也不会漂移。
+ */
+export function fmtMB(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1)
 }
 
