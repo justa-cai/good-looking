@@ -260,16 +260,66 @@ function waitForMetadata(
 }
 
 /**
+ * 大类平台。**只用来选一句更有针对性的话**，不做别的判断。
+ *
+ * 为什么不省掉：同一句「浏览器看不到摄像头」在三类系统上的处置完全不一样 ——
+ * Linux 上要去查 `/dev/video*`、沙箱（snap / flatpak）、`video` 用户组，
+ * 而「系统设置里的隐私开关」这个概念在 Linux 上根本不存在。
+ * 早先的文案把 macOS / Windows 的说法一视同仁地发给了所有人，
+ * 一个 Linux 用户看完只能去翻一个不存在的开关。
+ */
+type Platform = 'mac' | 'windows' | 'linux' | 'android' | 'chromium-os' | 'unknown'
+
+function guessPlatform(): Platform {
+  if (typeof navigator === 'undefined') return 'unknown'
+  const ua = navigator.userAgent
+  if (/CrOS/.test(ua)) return 'chromium-os'
+  if (/Android/.test(ua)) return 'android'
+  if (/iPhone|iPad|iPod/.test(ua)) return 'mac' // iOS 的处置和 macOS 同源
+  if (/Mac OS X|Macintosh/.test(ua)) return 'mac'
+  if (/Windows/.test(ua)) return 'windows'
+  if (/Linux|X11/.test(ua)) return 'linux'
+  return 'unknown'
+}
+
+/**
+ * 「浏览器看不到任何摄像头」时，按平台给出该去查什么。
+ *
+ * ⚠️ 措辞上只说自己确知的事：我们确知的是「浏览器没能枚举到任何视频设备」，
+ * **不确知**用户桌上有没有摄像头 —— 系统权限、别的程序独占、浏览器跑在沙箱里
+ * 都会让枚举结果为空。所以每一句都写成「去查一查」，而不是「你没有摄像头」。
+ */
+function noCameraHint(platform: Platform): string {
+  switch (platform) {
+    case 'mac':
+      return 'macOS 上最常见的原因是系统还没允许浏览器使用摄像头：打开「系统设置 → 隐私与安全性 → 摄像头」，把浏览器的开关打开，然后刷新页面。也要确认没有别的程序正占着它。'
+    case 'windows':
+      return 'Windows 上最常见的原因是隐私开关没开：「设置 → 隐私和安全性 → 相机」里的「相机访问」和「让桌面应用访问你的相机」两个都要打开，然后刷新页面。也要确认没有别的程序正占着它。'
+    case 'linux':
+      return (
+        'Linux 上请依次查这几处：① 终端里 `ls -l /dev/video*` —— 设备节点不存在就是驱动 / 连接的问题；' +
+        '② 存在但打不开，看当前用户在不在 `video` 组里（`groups`）；' +
+        '③ 如果浏览器是 snap 或 flatpak 装的，沙箱默认可能拿不到摄像头' +
+        '（snap 的要 `snap connect chromium:camera`）；' +
+        '④ 确认没有别的程序（会议、录屏）正占着它；' +
+        '⑤ **如果摄像头是刚接上的，重启浏览器** —— 一个早就开着的浏览器可能一直看不到它。' +
+        '改完刷新页面再试。'
+      )
+    case 'chromium-os':
+    case 'android':
+      return '请确认系统设置里已经允许浏览器使用摄像头，并且没有别的应用正占着它。之后刷新页面再试。'
+    default:
+      return '请确认系统已经允许浏览器使用摄像头，并且没有别的程序正占着它 —— 有些浏览器（尤其沙箱化的安装方式）默认拿不到摄像头，需要额外授权。改完刷新页面再试。'
+  }
+}
+
+/**
  * 把 `getUserMedia` 的报错翻译成用户能处置的话。
  *
  * 关键点：`NotAllowedError` **同时**表示「用户拒绝了」和「系统层面禁用了摄像头」
  * （Windows 的隐私设置、macOS 的屏幕使用时间限制都会走到这里），而这两种的
  * 处置完全不同。用 `enumerateDevices()` 来区分 —— 它不需要权限就能列出设备种类，
  * 一个 videoinput 都没有就说明这台机器上浏览器看不到任何摄像头。
- *
- * ⚠️ 措辞上的纪律：**只说自己确知的事**。我们能确知的是「浏览器没能打开任何摄像头」，
- * 不确知用户桌上到底摆没摆一个摄像头 —— 系统权限、别的程序独占、浏览器跑在沙箱里
- * 都会让我们看不到它。所以文案要把这些可能性摆出来，而不是断言「你没有摄像头」。
  */
 async function mapGetUserMediaError(err: unknown): Promise<CameraError> {
   if (err instanceof CameraError) return err
@@ -282,7 +332,7 @@ async function mapGetUserMediaError(err: unknown): Promise<CameraError> {
       if (!(await hasVideoInput())) {
         return new CameraError(
           'no-camera',
-          '浏览器看不到任何可用的摄像头。最可能的原因是系统还没允许浏览器使用摄像头（macOS 的「隐私与安全性 → 摄像头」、Windows 的「隐私和安全性 → 相机」），也可能是摄像头正被别的程序独占。确认之后刷新页面再试。控制台里有一条环境诊断，可据此进一步定位。',
+          `浏览器看不到任何可用的摄像头。${noCameraHint(guessPlatform())}控制台里有一条环境诊断，可据此进一步定位。`,
           err,
         )
       }
@@ -304,7 +354,7 @@ async function mapGetUserMediaError(err: unknown): Promise<CameraError> {
     case 'DevicesNotFoundError':
       return new CameraError(
         'no-camera',
-        '浏览器没能找到任何摄像头。常见原因是系统还没允许浏览器使用摄像头（macOS 的「隐私与安全性 → 摄像头」、Windows 的「隐私和安全性 → 相机」），或者摄像头正被别的程序独占着。确认之后刷新页面再试。控制台里有一条环境诊断，可据此进一步定位。',
+        `浏览器没能找到任何摄像头。${noCameraHint(guessPlatform())}控制台里有一条环境诊断，可据此进一步定位。`,
         err,
       )
     case 'NotReadableError':
@@ -361,8 +411,9 @@ export async function describeCameraSupport(): Promise<string> {
   }
 
   put('isSecureContext', typeof isSecureContext === 'boolean' ? isSecureContext : '未知')
-  // 带上 UA 就是为了知道「是哪台机器上的哪个浏览器」—— 同一句报错在
+  // 带上平台和 UA 就是为了知道「是哪台机器上的哪个浏览器」—— 同一句报错在
   // macOS 系统权限、Windows 隐私开关、Linux 的 snap 沙箱下含义完全不同
+  put('平台', guessPlatform())
   put('userAgent', typeof navigator !== 'undefined' ? navigator.userAgent : '未知')
   put('mediaDevices 存在', typeof navigator !== 'undefined' && !!navigator.mediaDevices)
   put('getUserMedia 可用', isCameraSupported())
@@ -380,7 +431,7 @@ export async function describeCameraSupport(): Promise<string> {
       put(
         '摄像头',
         video.map((d) => d.label || '(无标签)').join(' | ') ||
-          '一个都没有（系统权限、设备被独占、或浏览器跑在沙箱里都会是这样）',
+          '一个都没有 —— 可能是系统权限、设备被别的程序独占、浏览器跑在沙箱里，也可能是这个浏览器是在摄像头接上之前就启动的（那种情况下重启浏览器就好）',
       )
     } catch (err) {
       put('enumerateDevices', `失败：${err instanceof Error ? err.message : String(err)}`)
