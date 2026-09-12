@@ -1,0 +1,65 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署；排队中的旧任务直接取消，但不打断正在进行的部署
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.12.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # 仓库名与 vite.config.ts 的 base 必须一致，否则线上资源全部 404。
+      # 这个错误在本地 dev 下看不出来，只有部署后才会暴露，所以在这里挡住。
+      - name: Verify base path
+        run: |
+          BASE="/${GITHUB_REPOSITORY#*/}/"
+          if ! grep -q "=\"${BASE}assets/" dist/index.html; then
+            echo "::error::dist/index.html 里的资源路径不是 ${BASE}assets/，请检查 vite.config.ts 的 base"
+            grep -o 'src="[^"]*"' dist/index.html || true
+            exit 1
+          fi
+          echo "base path OK: ${BASE}"
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

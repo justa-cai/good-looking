@@ -40,10 +40,30 @@
 | `@mediapipe/tasks-vision` 最新版 | `1.0.1` | `npm view @mediapipe/tasks-vision version` |
 | `onnxruntime-web` 最新版 | `1.29.0` | `npm view onnxruntime-web version` |
 | `vite` 最新版 | `8.3.0` | `npm view vite version` |
+| `typescript` 最新版 | `7.0.2`（原生编译器） | `npm view typescript dist-tags` |
+| 包管理器 | `pnpm` 10.12.1 | 本地 `pnpm -v`，CI 里同版本 |
 | ViT 模型许可证 | `apache-2.0` | HF API `cardData.license` |
 | ViT 输入 | 224×224，mean/std 均 0.5，rescale 1/255，bicubic | `preprocessor_config.json` |
 | ViT 标签 | 2 类（attractive / not attractive），报告准确率 83.8% | 模型卡 classification report |
 | ViT 权重文件 | 根目录 `model.safetensors`（另有 checkpoint-149/3083 等中间检查点） | HF API `siblings` |
+
+### MediaPipe 资源 CDN（已核实可访问，返回 206）
+
+- wasm 目录：`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm/`
+- 模型：`https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`
+
+版本号写在 URL 里，跟着 npm 包的版本一起升，不要漏改。
+
+### ⚠️ GitHub Pages 没有 COOP/COEP，SharedArrayBuffer 不可用
+
+这是本项目最重要的部署约束：**多线程 WASM 用不了**。
+
+- GitHub Pages 不支持自定义响应头，所以拿不到 cross-origin isolation；
+- 因此 `SharedArrayBuffer` 不存在，MediaPipe 和 ONNX Runtime 的**多线程后端都会退化为单线程**；
+- 推论：dev server 也**故意不开** COOP/COEP（见 `vite.config.ts`）——保证本地和线上行为一致。
+  否则会出现「本地飞快、线上慢十倍」这种只在部署后才暴露的问题；
+- 后果：不要指望用 `numThreads` 调优；提速要靠 WebGPU（不依赖 SAB）和减小模型。
+
 
 ### ⚠️ 已排除的方案：SCUT-FBP5500
 
@@ -95,14 +115,19 @@ good-looking/
 ## 常用命令
 
 ```bash
-pnpm dev            # 本地开发（Vite dev server）
-pnpm build          # 构建到 dist/
+pnpm dev            # 本地开发（Vite dev server，端口 5273）
+pnpm build          # typecheck + 构建到 dist/
 pnpm preview        # 预览构建产物（验证 base 路径是否正确）
+pnpm typecheck      # 只跑类型检查
 ```
 
-部署到 GitHub Pages 时，Vite 的 `base` 必须是仓库名：
-`base: '/good-looking/'`。`pnpm preview` 是验证这一点的最快方式——
-构建后资源 404 基本就是 `base` 配错了。
+部署到 GitHub Pages 时，Vite 的 `base` 必须是仓库名（见 `vite.config.ts` 的 `REPO_NAME`）。
+改了仓库名要同步改那里，CI 里有一道 base 路径校验会挡住不一致的情况
+（这个错误在本地 dev 下看不出来，只有部署后才暴露）。
+
+CI 用的 Action 版本（2026-09-12 核实）：`actions/checkout@v7`、`actions/setup-node@v7`、
+`pnpm/action-setup@v6`、`actions/configure-pages@v6`、`actions/upload-pages-artifact@v5`、
+`actions/deploy-pages@v5`。
 
 ## 验证清单
 
