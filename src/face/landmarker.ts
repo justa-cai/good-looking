@@ -71,7 +71,9 @@ async function create(delegate: Delegate): Promise<FaceLandmarker> {
     // 阈值保持默认 0.5。调高会更严格，但侧脸照会被静默丢弃 ——
     // 这属于输入质量问题，应该由 quality 层给出可解释的提示。
     outputFaceBlendshapes: false,
-    outputFacialTransformationMatrixes: false,
+    // 打开：头部姿态只能从这里拿。关键点本身推不出可靠的姿态
+    // （试过用左右关键点的对称性当判据，噪声太大，见 CLAUDE.md）。
+    outputFacialTransformationMatrixes: true,
   })
 }
 
@@ -198,10 +200,14 @@ export function detectFaces(image: ImageBitmap): FaceLandmarks[] {
   const height = image.height
   const result = instance.detect(image)
 
-  return result.faceLandmarks.map((face) => ({
-    normalized: face.map((lm) => ({ x: lm.x, y: lm.y, z: lm.z })),
-    pixels: face.map((lm) => toPoint3(lm, width, height)),
-    width,
-    height,
-  }))
+  return result.faceLandmarks.map((face, i) => {
+    const matrix = result.facialTransformationMatrixes[i]
+    return {
+      normalized: face.map((lm) => ({ x: lm.x, y: lm.y, z: lm.z })),
+      pixels: face.map((lm) => toPoint3(lm, width, height)),
+      width,
+      height,
+      transform: matrix ? Array.from(matrix.data) : null,
+    }
+  })
 }

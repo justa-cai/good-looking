@@ -17,4 +17,9 @@ export interface FaceLandmarks {
   /** 关键点所基于的图像尺寸（已经过下采样，不是用户原图尺寸）。 */
   readonly width: number
   readonly height: number
+  /**
+   * 4×4 列主序的「标准人脸 → 检出人脸」变换矩阵（MediaPipe 原样输出）。
+   * 头部姿态是从它推出来的，见 face/pose.ts。为 null 表示模型没给。
+   */
+  readonly transform: readonly number[] | null
 }
