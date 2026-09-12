@@ -1,7 +1,0 @@
-- main [ref=e3]:
-  - generic [ref=e4]:
-    - heading "good-looking" [level=1] [ref=e5]
-    - paragraph [ref=e6]: 浏览器端人脸颜值分析
-  - generic [ref=e7]:
-    - paragraph [ref=e8]: 所有推理在你的设备上完成，照片不会被上传。
-    - paragraph [ref=e9]: 正在构建中。

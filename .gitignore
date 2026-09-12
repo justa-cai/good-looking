@@ -10,6 +10,10 @@ dist-ssr/
 # 临时文件（调试脚本、截图、日志、中间产物 —— 见 CLAUDE.md 约定）
 tmp/
 
+# 浏览器自动化工具的落盘产物（截图、快照、控制台日志）
+.playwright-cli/
+.playwright-mcp/
+
 # Python（模型导出 / 量化 pipeline）
 __pycache__/
 *.py[cod]
