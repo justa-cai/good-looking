@@ -399,6 +399,111 @@ body {
   color: var(--text-dim);
 }
 
+/* ---------- 路线 B：学习模型卡片 ---------- */
+
+/*
+  刻意用不同的边框色和「学习模型（路线 B）」的标题，和上面的比例面板分开。
+  两者量的不是一回事，视觉上必须一眼能分辨。
+*/
+.model-card {
+  padding: 1rem 1.15rem;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 12px;
+}
+
+.model-card__head h2 {
+  margin: 0 0 0.6rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.model-card__verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.model-card__class {
+  font-size: 1.25rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.model-card__prob {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.model-card__note {
+  margin: 0.5rem 0 0;
+  font-size: 0.83rem;
+  color: var(--text-dim);
+}
+
+.model-card__ref {
+  margin: 0.7rem 0 0;
+  font-size: 0.83rem;
+  color: var(--text-dim);
+}
+
+.model-card__caveat {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--warn) 7%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--border));
+  border-radius: 8px;
+}
+
+.model-card__error {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--bad);
+}
+
+.model-card__btn {
+  margin-top: 0.7rem;
+  padding: 0.45rem 0.9rem;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.model-card__btn:hover {
+  background: color-mix(in srgb, var(--accent) 26%, var(--surface-2));
+}
+
+.model-card__bar {
+  margin-top: 0.3rem;
+  height: 5px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.model-card__fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-card__fill {
+    transition: none;
+  }
+}
+
 /* ---------- 页脚说明 ---------- */
 
 .footnotes {
