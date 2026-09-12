@@ -101,6 +101,9 @@ pnpm preview  # 预览构建产物
 - 人脸关键点检测：[MediaPipe Tasks Vision](https://github.com/google-ai-edge/mediapipe)（Apache-2.0）
 - 学习模型：[dima806/attractive_faces_celebs_detection](https://huggingface.co/dima806/attractive_faces_celebs_detection)（Apache-2.0），
   base 为 [google/vit-base-patch16-224-in21k](https://huggingface.co/google/vit-base-patch16-224-in21k)
+- 首页「示例照片」那 6 张图取自 Wikimedia Commons（CC0 / CC BY / CC BY-SA 混合）。
+  逐张的作者、许可证和来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，
+  页面上也有一处同样的署名区
 - 几何指标的美学约定参考公开的面部美学文献
 
 ### 对上游模型做过的改动
@@ -118,6 +121,9 @@ Apache-2.0 要求标注改动。`public/models/attractive.int4.onnx` 来自上�
 随仓库再分发的那个 56.8 MB 模型是**衍生作品**，不是原创产出：它的上游和上游的上游
 都是 Apache-2.0。来源、我们对它做过的三处改动，以及 Apache-2.0 全文，都在
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 里。
+
+`public/samples/` 里那 6 张示例照片同样是**再分发**，不适用 MIT，按各自的 CC 许可
+（含 CC BY-SA 的 share-alike）提供，明细在同一份文件里。
 
 ## 免责声明
 

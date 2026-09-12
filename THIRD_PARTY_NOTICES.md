@@ -34,7 +34,49 @@ Apache-2.0。
 
 ---
 
-## 2. 运行时不随仓库分发、从公开 CDN 加载
+## 2. 随仓库再分发的图片素材
+
+`public/samples/` 下的 6 张图是首页「示例照片」按钮的素材（连缩略图共 12 个文件，
+约 1.3 MB）。用途只有一个：让第一次来的访客不必先准备一张自己的正脸照，点一下就能
+看到完整流程和结果长什么样。
+
+它们全部取自 **Wikimedia Commons**，都是**真实人物的公开活动照** —— 这一点和
+校准用的那 37 张公有领域官方肖像不同，所以在这里单独列清楚。
+
+⚠️ 下表每一行都是**许可证义务**，不是致谢：CC BY 与 CC BY-SA 都要求署名，
+CC BY-SA 还要求改编作品按**同一许可**再分发。换图、换裁剪、改文件名时这张表必须
+同步改；页面另有一处可折叠的同内容署名区（`src/app.ts` 里的 `SAMPLES` 表），
+两边要一起改。
+
+**我们做过的改动**：**只有 `01` 做了裁剪** —— 它是竖幅全身/半身构图，脸在画面里太小，
+用一个以检测器量到的虹膜中点为基准的头部框裁成头像构图（脚本 `tmp/samples/crop.py`，
+不入库）。其余 5 张**都是原图整幅**，没有裁过。6 张一律缩放到最长边 ≤ 1280、
+转成渐进式 JPEG、去掉元数据（`-strip`）；缩略图由入库的那张再缩到 260 px。
+**除此之外没有任何改动** —— 没有美颜、没有换脸、没有生成式处理，也不是 AI 生成的图。
+
+注意 `04` 与 `06` 的来源文件名里带 `(cropped)` 后缀，那是 **Commons 上游文件本身
+就是裁剪版**，不是我们裁的。
+
+| 入库文件 | 人物 | 作者 | 许可证 | 来源（Commons 原始文件页） |
+|---|---|---|---|---|
+| `01-liu-yifei.jpg` | 刘亦菲 | 刘亦菲吧官方 | [CC BY-SA 2.5](https://creativecommons.org/licenses/by-sa/2.5/) | [File:Liu Yifei Portrait2.jpg](https://commons.wikimedia.org/wiki/File:Liu_Yifei_Portrait2.jpg) |
+| `02-yang-mi.jpg` | 杨幂 | Mercury水星記·杨幂 | [CC BY 2.5](https://creativecommons.org/licenses/by/2.5/) | [File:杨幂 ELLE30周年风尚大典（4）.jpg](https://commons.wikimedia.org/wiki/File:%E6%9D%A8%E5%B9%82_ELLE30%E5%91%A8%E5%B9%B4%E9%A3%8E%E5%B0%9A%E5%A4%A7%E5%85%B8_%EF%BC%884%EF%BC%89.jpg) |
+| `03-emma-watson.jpg` | Emma Watson | David Shankbone | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) | [File:Emma Watson, 2012.jpg](https://commons.wikimedia.org/wiki/File:Emma_Watson,_2012.jpg) |
+| `04-henry-cavill.jpg` | Henry Cavill | ryanmorrisonjsy | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | [File:Henry Cavill-2665842 (cropped).jpg](https://commons.wikimedia.org/wiki/File:Henry_Cavill-2665842_(cropped).jpg) |
+| `05-chris-hemsworth.jpg` | Chris Hemsworth | Gage Skidmore | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) | [File:Chris Hemsworth by Gage Skidmore 2 (cropped).jpg](https://commons.wikimedia.org/wiki/File:Chris_Hemsworth_by_Gage_Skidmore_2_(cropped).jpg) |
+| `06-li-xian.jpg` | 李现 | 李现_秃头姐妹站 | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) | [File:Li Xian 3 (cropped).jpg](https://commons.wikimedia.org/wiki/File:Li_Xian_3_(cropped).jpg) |
+
+**许可范围怎么划**：`04` 那张是 CC0，作者已放弃全部权利，署名只是出于礼貌。
+`01` / `05` / `06` 三张是 **CC BY-SA**，条目里入库的 `*.jpg` 与 `*.thumb.jpg` 是原图的
+**改编作品**（裁剪 + 缩放），按 share-alike 同样以 CC BY-SA（对应版本）提供；
+它们和本项目 MIT 的**代码**是各自独立的作品，share-alike 不延伸到 `src/`。
+
+**原始大图不入库**（放在 gitignored 的 `tmp/samples/orig/`，含每张的作者、许可、
+来源记录）。要重新生成入库的那 12 个文件，见 `CLAUDE.md` 里记的 ImageMagick 命令。
+
+---
+
+## 3. 运行时不随仓库分发、从公开 CDN 加载
 
 这些不在仓库里，也不由本项目再分发 —— 浏览器直接从各家的官方 CDN 取。列在这里
 是为了说明依赖关系，不构成对本项目的许可授予。
@@ -50,7 +92,7 @@ Apache-2.0。
 
 ---
 
-## 3. 设计参考（未使用其代码）
+## 4. 设计参考（未使用其代码）
 
 `Blueturboguy07/freeharmony`（AGPL-3.0）只在设计阶段作为几何指标的**参考**读过，
 **一行代码都没有进本仓库** —— 理由见 `CLAUDE.md`：AGPL-3.0 与本项目的
@@ -58,7 +100,7 @@ Apache-2.0。
 
 ---
 
-## 4. 本项目产出
+## 5. 本项目产出
 
 `src/`、`scripts/`、`index.html` 等全部原创代码，以及几何指标的校准数据
 （`src/engine/calibration.ts` 里的均值/标准差/理想值），按 MIT 发布。

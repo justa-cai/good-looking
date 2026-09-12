@@ -149,6 +149,96 @@ body {
   max-width: 28rem;
 }
 
+/* ---------- 示例照片 ---------- */
+
+/*
+  在 .picker 里面，所以只在上传模式下出现 —— 实时模式那边是一路取景，没有
+  「拿一张示例来跑」这个动作。
+  缩略图是按钮的图案，点下去分析的却是 public/samples/ 里那张全尺寸的：
+  缩略图只有 88px 宽，拿去检测连瞳距都过不了（quality.ts 的 minIpd = 50）。
+*/
+.samples {
+  margin-top: 1.1rem;
+}
+
+.samples__label {
+  margin: 0 0 0.6rem;
+  font-size: 0.86rem;
+  color: var(--text-dim);
+}
+
+.samples__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.samples__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.5rem 0.35rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.samples__item:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.samples__thumb {
+  display: block;
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+
+/*
+  取字节和跑管线期间把整条禁掉。重复点击本身是安全的（run() 里的 busy 会挡），
+  但按钮还亮着会让人以为没点上，然后一直点。
+*/
+.samples.is-busy .samples__item {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.samples__credits {
+  margin-top: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.samples__credits > summary {
+  cursor: pointer;
+}
+
+.samples__credits > ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  line-height: 1.9;
+}
+
+.samples__credits a {
+  color: var(--text-dim);
+}
+
+.samples__note {
+  margin: 0.55rem 0 0;
+  line-height: 1.7;
+}
+
 /* ---------- 摄像头实时 ---------- */
 
 .live {

@@ -55,6 +55,96 @@ const STAGE_TEXT: Record<LoadStage, string> = {
   ready: '',
 }
 
+/**
+ * 内置示例照片。
+ *
+ * 用途只有一个：让第一次来的访客不必先找一张自己的正脸照，点一下就能看到流程和
+ * 结果长什么样。它们**就是普通输入** —— 走的是和用户自己拖进来那张一模一样的
+ * `run()`，没有免检、没有专用通道。示例要是抄近路，展示的就不是真实结果了。
+ *
+ * 全部取自 Wikimedia Commons；`public/samples/` 里放的是裁剪缩放后的版本，
+ * 原始大图不入库。作者与许可**逐张**记在 `THIRD_PARTY_NOTICES.md`，页面上还有
+ * 一处可折叠的署名区 —— 两边都要补，加图时别只改一边。
+ *
+ * ⚠️ 这几个字段对应的是许可证义务，不是装饰：`license`/`licenseUrl`/`author`/`source`
+ * 一个都不能空。署不了名的图，就不要往公开仓库里放。
+ */
+interface Sample {
+  /** `public/samples/` 下的主名（不含扩展名）：`<base>.jpg` 全尺寸，`<base>.thumb.jpg` 缩略图 */
+  readonly base: string
+  readonly name: string
+  readonly author: string
+  readonly license: string
+  readonly licenseUrl: string
+  /** Commons 上的原始文件页，署名要求里的「来源」指的就是它 */
+  readonly source: string
+}
+
+const SAMPLES: readonly Sample[] = [
+  {
+    base: '01-liu-yifei',
+    name: '刘亦菲',
+    author: '刘亦菲吧官方',
+    license: 'CC BY-SA 2.5',
+    licenseUrl: 'https://creativecommons.org/licenses/by-sa/2.5/',
+    source: 'https://commons.wikimedia.org/wiki/File:Liu_Yifei_Portrait2.jpg',
+  },
+  {
+    base: '02-yang-mi',
+    name: '杨幂',
+    author: 'Mercury水星記·杨幂',
+    license: 'CC BY 2.5',
+    licenseUrl: 'https://creativecommons.org/licenses/by/2.5/',
+    source:
+      'https://commons.wikimedia.org/wiki/File:%E6%9D%A8%E5%B9%82_ELLE30%E5%91%A8%E5%B9%B4%E9%A3%8E%E5%B0%9A%E5%A4%A7%E5%85%B8_%EF%BC%884%EF%BC%89.jpg',
+  },
+  {
+    base: '03-emma-watson',
+    name: 'Emma Watson',
+    author: 'David Shankbone',
+    license: 'CC BY 2.0',
+    licenseUrl: 'https://creativecommons.org/licenses/by/2.0/',
+    source: 'https://commons.wikimedia.org/wiki/File:Emma_Watson,_2012.jpg',
+  },
+  {
+    base: '04-henry-cavill',
+    name: 'Henry Cavill',
+    author: 'ryanmorrisonjsy',
+    license: 'CC0 1.0',
+    licenseUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+    source: 'https://commons.wikimedia.org/wiki/File:Henry_Cavill-2665842_(cropped).jpg',
+  },
+  {
+    base: '05-chris-hemsworth',
+    name: 'Chris Hemsworth',
+    author: 'Gage Skidmore',
+    license: 'CC BY-SA 3.0',
+    licenseUrl: 'https://creativecommons.org/licenses/by-sa/3.0/',
+    source:
+      'https://commons.wikimedia.org/wiki/File:Chris_Hemsworth_by_Gage_Skidmore_2_(cropped).jpg',
+  },
+  {
+    base: '06-li-xian',
+    name: '李现',
+    author: '李现_秃头姐妹站',
+    license: 'CC BY-SA 3.0',
+    licenseUrl: 'https://creativecommons.org/licenses/by-sa/3.0/',
+    source: 'https://commons.wikimedia.org/wiki/File:Li_Xian_3_(cropped).jpg',
+  },
+]
+
+/**
+ * 拼 `public/samples/` 下的地址。
+ *
+ * ⚠️ 必须走 `import.meta.env.BASE_URL`。站点部署在 GitHub Pages 的 `/<repo-name>/`
+ * 子路径下，写死 `/samples/xxx.jpg` 在本地 dev 下看着是好的，部署后全 404 ——
+ * 这个坑在 base path 那一步已经踩过一次（CI 里专门有一道校验挡它），
+ * 所以这里不留例外。Vite 保证 `BASE_URL` 以 `/` 结尾。
+ */
+function sampleUrl(name: string): string {
+  return `${import.meta.env.BASE_URL}samples/${name}`
+}
+
 /** 管线往哪儿报进度。上传路径写 #status，实时路径写实时面板自己的状态行 */
 interface PipelineSink {
   status(text: string, kind?: 'busy' | 'error'): void
@@ -71,6 +161,7 @@ interface Elements {
   panel: HTMLElement
   model: HTMLElement
   picker: HTMLElement
+  samples: HTMLElement
   live: HTMLElement
   tabUpload: HTMLButtonElement
   tabLive: HTMLButtonElement
@@ -162,6 +253,7 @@ export function mountApp(): void {
     panel: need('panel'),
     model: need('model'),
     picker: need('picker'),
+    samples: need('samples'),
     live: need('live'),
     tabUpload: need<HTMLButtonElement>('tab-upload'),
     tabLive: need<HTMLButtonElement>('tab-live'),
@@ -480,7 +572,9 @@ export function mountApp(): void {
         },
       })
     } catch (err) {
-      console.error('[good-looking] 打开摄像头失败：', err)
+      // CameraError 已经在 stream.ts 里连同环境诊断打过一条了，这儿就不再重复
+      // 一条信息量更少的 —— 同一个失败在控制台里出现两次只会让人以为是两回事
+      if (!(err instanceof CameraError)) console.error('[good-looking] 打开摄像头失败：', err)
       liveState = 'idle'
       live.setState('idle')
       live.setStatus(null)
@@ -688,4 +782,124 @@ export function mountApp(): void {
     const file = e.dataTransfer?.files?.[0]
     if (file) void run(file)
   })
+
+  // ==================== 示例照片 ====================
+
+  /** 示例照片正在取字节。和 `busy`（管线在跑）分开：取回字节之前管线还没开始 */
+  let samplesLoading = false
+
+  /**
+   * 取一张示例照片来跑。
+   *
+   * 只是「把字节取回来」这一步是示例独有的，之后就全部交给 `run()` ——
+   * 和用户自己选文件走的是同一条路。
+   *
+   * ⚠️ 不能只看 `res.ok`。这个项目已经踩过两次同一类坑（CLAUDE.md 里记着）：
+   * 静态服务器对不存在的路径返回 **200 + index.html** 而不是 404 是很常见的配置，
+   * 那样拿到的是一页 HTML，最后报出来的却是
+   * `InvalidStateError: The source image could not be decoded` —— 看起来像图片格式
+   * 有问题，其实只是路径错了。所以状态码之外还要看 content-type 是不是图片。
+   */
+  async function runSample(sample: Sample): Promise<void> {
+    if (busy || samplesLoading) return
+    samplesLoading = true
+    el.samples.classList.add('is-busy')
+    try {
+      const res = await fetch(sampleUrl(`${sample.base}.jpg`))
+      if (!res.ok) throw new Error(`示例照片读取失败（HTTP ${res.status}）。`)
+      const blob = await res.blob()
+      if (!blob.type.startsWith('image/')) {
+        throw new Error('示例照片读取失败：服务器返回的不是图片。')
+      }
+      // run() 收 File。示例照片取回来的只是一个 Blob，这里补上文件名和类型 ——
+      // 除此之外它和用户拖进来的文件没有任何区别
+      await run(new File([blob], `${sample.base}.jpg`, { type: blob.type }))
+    } catch (err) {
+      // 这里不走 describeError：上面两句本身就是要给用户看的话，
+      // 再套一层「处理失败：」只会把话说糊
+      console.error('[good-looking] 读取示例照片失败：', err)
+      showStatus(el.status, err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      samplesLoading = false
+      el.samples.classList.remove('is-busy')
+    }
+  }
+
+  /** 署名区。CC BY / CC BY-SA 都要求署名，CC0 那张也一并列上 —— 分两处写容易漏 */
+  function buildSampleCredits(): HTMLElement {
+    const details = document.createElement('details')
+    details.className = 'samples__credits'
+
+    const summary = document.createElement('summary')
+    summary.textContent = '示例照片的作者与许可'
+    details.append(summary)
+
+    const ul = document.createElement('ul')
+    for (const s of SAMPLES) {
+      const li = document.createElement('li')
+
+      const lic = document.createElement('a')
+      lic.href = s.licenseUrl
+      lic.target = '_blank'
+      lic.rel = 'noopener noreferrer'
+      lic.textContent = s.license
+
+      const src = document.createElement('a')
+      src.href = s.source
+      src.target = '_blank'
+      src.rel = 'noopener noreferrer'
+      src.textContent = '原始文件页'
+
+      li.append(`${s.name}：${s.author}，`, lic, '，', src)
+      ul.append(li)
+    }
+    details.append(ul)
+
+    const note = document.createElement('p')
+    note.className = 'samples__note'
+    note.textContent =
+      '这些都是真实人物的公开活动照，在这里只作为分析的输入使用，' +
+      '不代表对照片中任何人的评价。入库的是裁剪缩放后的版本（改编作品），' +
+      '仍按原许可再分发；去掉作者署名或改许可都不行，明细见仓库里的 THIRD_PARTY_NOTICES.md。'
+    details.append(note)
+
+    return details
+  }
+
+  function buildSamples(): void {
+    const label = document.createElement('p')
+    label.className = 'samples__label'
+    label.textContent = '没有合适的照片？用这张示例试一下：'
+
+    const list = document.createElement('div')
+    list.className = 'samples__list'
+    for (const s of SAMPLES) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'samples__item'
+      btn.title = `${s.name} · 摄影 ${s.author} · ${s.license}`
+
+      const img = document.createElement('img')
+      img.className = 'samples__thumb'
+      img.src = sampleUrl(`${s.base}.thumb.jpg`)
+      // 名字就在下面一行，读屏再念一遍是重复
+      img.alt = ''
+      img.loading = 'lazy'
+      img.decoding = 'async'
+      img.width = 88
+      img.height = 88
+
+      const name = document.createElement('span')
+      name.className = 'samples__name'
+      name.textContent = s.name
+
+      btn.append(img, name)
+      btn.addEventListener('click', () => void runSample(s))
+      list.append(btn)
+    }
+
+    el.samples.replaceChildren(label, list, buildSampleCredits())
+  }
+
+  buildSamples()
 }
