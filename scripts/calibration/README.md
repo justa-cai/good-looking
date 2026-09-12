@@ -49,3 +49,33 @@ python3 scripts/calibration/stats.py tmp/calib_raw.txt
 `empirical` 意味着实测偏离经典约定超过 0.75σ。整批人同方向偏离，
 只可能来自测量系统（关键点定义与解剖定义不同），不可能来自这批人本身。
 所以要用实测值当理想值，并在界面上说清楚这是「接近人群平均」而非「符合公认比例」。
+
+---
+
+# 清晰度（模糊）阈值的校准
+
+`src/face/quality.ts` 里的 `minSharpness` / `warnSharpness` 同样不是手填的。
+
+因为删掉/新增关键点不影响这一项，触发重跑的条件不同：
+**只有在改动 `src/face/sharpness.ts` 的度量方式（裁剪尺寸、外扩比例、归一化方式）
+时才需要重跑。**
+
+```bash
+# 前置同上（dev server + serve.py），然后：
+playwright-cli -s=cal eval "$(cat scripts/calibration/sharpness.js)" > tmp/sharpness_raw.txt
+python3 scripts/calibration/sharpness_stats.py tmp/sharpness_raw.txt
+```
+
+脚本会把同一批「清晰」样本再合成出 `blur(1/2/3/4px)` 四档模糊样本，
+打印每档的分布和一张「候选阈值 → 各档拒判率」的表，据此挑阈值。
+
+两个必须遵守的前提（脚本头部注释里也有）：
+
+1. **模糊必须用浏览器自己的 CSS 滤镜合成，不要用 PIL。**
+   PIL 的 `GaussianBlur(radius)` 里 radius 就是 σ，和 CSS `blur(Npx)` 的标定差 3 倍以上
+   （PIL σ=1.0 实测 10.05，CSS `blur(2px)` 实测约 2–4）。用错工具会把阈值调到错的地方。
+2. **模糊要加在缩放之后的位图上。** 先糊原图再缩小，模糊半径会被缩放吃掉，
+   严重低估糊的程度。
+
+阈值选定后，同步更新 `quality.ts` 的注释和 CLAUDE.md 里的分布表。
+

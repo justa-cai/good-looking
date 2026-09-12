@@ -3,14 +3,77 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>good-looking · 人脸颜值分析</title>
+    <title>good-looking · 人脸比例分析</title>
+    <!--
+      图标内联成 data URI，而不是放 public/favicon.ico。
+      好处是不会被 base path 影响（GitHub Pages 挂在 /good-looking/ 下），
+      也不会因为浏览器默认请求 /favicon.ico 而在控制台留下 404。
+      图案是三庭分界线，和应用里的叠加图同一套语言。
+    -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230d0f14'/><g stroke='%236ea8fe' stroke-width='2.6' stroke-linecap='round'><path d='M8 9.5h16'/><path d='M8 16h16'/><path d='M8 22.5h16'/></g></svg>"
+    />
     <meta
       name="description"
-      content="浏览器端人脸颜值分析。所有推理在本地完成，照片不会离开你的设备。"
+      content="浏览器端人脸比例分析。所有推理在本地完成，照片不会离开你的设备。"
     />
   </head>
   <body>
-    <div id="app"></div>
+    <main class="app">
+      <header class="masthead">
+        <h1>good-looking</h1>
+        <p class="masthead__sub">人脸比例分析 · 全部在你的设备上完成</p>
+      </header>
+
+      <section class="privacy" aria-label="隐私说明">
+        <strong>照片不会离开这台设备。</strong>
+        从解码、找关键点到算分全部在浏览器里跑，没有服务器，也没有上传接口。
+        模型首次加载后会缓存，之后可以离线使用。
+      </section>
+
+      <section class="picker" id="picker">
+        <label class="picker__drop" id="drop">
+          <input type="file" id="file" accept="image/*" hidden />
+          <span class="picker__icon" aria-hidden="true">＋</span>
+          <span class="picker__title">选择或拖入一张正脸照片</span>
+          <span class="picker__hint">
+            正面朝向镜头、光线均匀、脸部占画面三分之一以上效果最好
+          </span>
+        </label>
+      </section>
+
+      <section class="status" id="status" hidden aria-live="polite"></section>
+
+      <section class="result" id="result" hidden>
+        <div class="result__view">
+          <canvas id="canvas"></canvas>
+        </div>
+        <div class="result__panel" id="panel"></div>
+      </section>
+
+      <section class="blocked" id="blocked" hidden></section>
+
+      <footer class="footnotes">
+        <h2>这是什么，不是什么</h2>
+        <p>
+          这里算的是<strong>面部几何比例的测量值</strong>，以及它偏离普通人群平均水平的程度。
+          分数高只表示比例更接近样本中的平均水平，<strong>不等于更好看</strong>。
+          分析不涉及皮肤、发质、妆容、表情、气质这些东西，审美本身也没有被测量。
+        </p>
+        <p>
+          理想值来自两组数据：一是公开的面部比例约定（例如「三庭」），
+          二是 37 张公有领域证件照统计出的人群分布。样本都是成年人、以中年为主，
+          换人群结论可能不同。每个指标后面都标了它的理想值属于哪一种。
+        </p>
+        <p>
+          同一个人的不同照片，分数可能相差十几分 —— 拍摄角度的影响最大。
+          请把分数当作一次粗略的测量，不要拿两次的结果做对比，
+          更不要用于任何临床、招聘或评价他人的场合。
+        </p>
+      </footer>
+    </main>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

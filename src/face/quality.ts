@@ -15,6 +15,7 @@
 
 import { LM } from './indices.ts'
 import { readHeadPose, type HeadPose } from './pose.ts'
+import { measureSharpness } from './sharpness.ts'
 import type { FaceLandmarks, Point3 } from './types.ts'
 
 /**
@@ -50,6 +51,34 @@ export const QUALITY_THRESHOLDS = {
 
   /** 人脸包围盒距画面边缘小于此比例时，判为可能被裁切。 */
   croppedMargin: 0.02,
+
+  /**
+   * 清晰度下限。低于此值判为明显模糊，拒判。
+   *
+   * 度量方式见 sharpness.ts（人脸区域归一化后的拉普拉斯方差）。
+   * 依据：37 张官方肖像照作为「清晰」样本，再对同一批图施加
+   * blur(1/2/3/4px) 合成「糊」样本，各自的分布是：
+   *
+   *   模糊半径   最小   中位   最大
+   *    0px      4.5   10.4   42.3
+   *    1px      0.6    5.5   13.3
+   *    2px      0.1    2.2    4.8
+   *    3px      0.1    1.1    2.5
+   *    4px      0.0    0.6    1.4
+   *
+   * 取 4.0 而不是分布交界处的 4.5，是刻意留的余量：4.5 正好是这批
+   * **专业肖像照**里最低的那张，普通用户随手拍的照片整体会比这批更软，
+   * 卡在 4.5 会误伤大量其实够用的照片。代价是 blur(2px) 那一档
+   * 还剩约 11% 能通过（89% 被拦下），blur(3px) 及以上 100% 拦下。
+   *
+   * ⚠️ 能力边界：**blur(1px) 这种轻微发虚和原本就清晰的照片分不开**
+   * （中位 5.5 vs 10.4，但分布重叠严重）。这一关拦的是「明显糊」，
+   * 不是「不够锐」。
+   */
+  minSharpness: 4.0,
+
+  /** 低于此值不拒判，但提示可能发虚。约 8% 的清晰样本会落进这一档。 */
+  warnSharpness: 6.0,
 } as const
 
 export type QualityCode =
@@ -60,6 +89,7 @@ export type QualityCode =
   | 'face-near-edge'
   | 'pose-extreme'
   | 'no-pose-data'
+  | 'blurry'
   | 'landmarks-incomplete'
 
 export interface QualityIssue {
@@ -82,6 +112,11 @@ export interface QualityReport {
   readonly pose: HeadPose | null
   /** 瞳距（像素），用于展示与尺寸判断 */
   readonly ipd: number
+  /**
+   * 归一化清晰度。没传原图（image 参数省略）或读不到像素时为 null，
+   * 表示「这一项没测」，不等于「清晰」。
+   */
+  readonly sharpness: number | null
 }
 
 /** 第 i 个点必须存在；越界抛错（调用前已保证数量足够）。 */
@@ -115,8 +150,14 @@ function ipdOf(points: readonly Point3[]): number {
  * 校验一次检测结果。
  *
  * @param faces detectFaces 的返回。空数组表示没检出人脸（正常结果，不是错误）。
+ * @param image 这次检测用的位图。**传了才会做模糊检测** —— 模糊必须读原始像素，
+ *   关键点里没有这个信息。省略时（例如只做几何校准的脚本）跳过该项检查，
+ *   report.sharpness 为 null。
  */
-export function checkQuality(faces: readonly FaceLandmarks[]): QualityReport {
+export function checkQuality(
+  faces: readonly FaceLandmarks[],
+  image?: ImageBitmap,
+): QualityReport {
   const issues: QualityIssue[] = []
   const fail = (r: Omit<QualityReport, 'acceptable'>): QualityReport => ({
     acceptable: false,
@@ -129,7 +170,7 @@ export function checkQuality(faces: readonly FaceLandmarks[]): QualityReport {
       severity: 'reject',
       message: '没有检测到人脸。请换一张正面、清晰、光线均匀的照片。',
     })
-    return fail({ issues, face: null, pose: null, ipd: 0 })
+    return fail({ issues, face: null, pose: null, ipd: 0, sharpness: null })
   }
 
   if (faces.length > 1) {
@@ -140,7 +181,7 @@ export function checkQuality(faces: readonly FaceLandmarks[]): QualityReport {
       message: `检测到 ${faces.length} 张人脸。请上传只包含一个人的照片，或先裁剪。`,
       detail: { count: faces.length },
     })
-    return fail({ issues, face: null, pose: null, ipd: 0 })
+    return fail({ issues, face: null, pose: null, ipd: 0, sharpness: null })
   }
 
   const face = faces[0]!
@@ -154,7 +195,7 @@ export function checkQuality(faces: readonly FaceLandmarks[]): QualityReport {
       message: '关键点数据不完整，无法建立尺度基准。',
       detail: { got: points.length, need: LM.irisB + 1 },
     })
-    return fail({ issues, face: null, pose: null, ipd: 0 })
+    return fail({ issues, face: null, pose: null, ipd: 0, sharpness: null })
   }
 
   const ipd = ipdOf(points)
@@ -164,7 +205,7 @@ export function checkQuality(faces: readonly FaceLandmarks[]): QualityReport {
       severity: 'reject',
       message: '关键点数据异常（瞳距无效）。',
     })
-    return fail({ issues, face: null, pose: null, ipd: 0 })
+    return fail({ issues, face: null, pose: null, ipd: 0, sharpness: null })
   }
 
   const pose = readHeadPose(face.transform)
@@ -210,6 +251,39 @@ export function checkQuality(faces: readonly FaceLandmarks[]): QualityReport {
     })
   }
 
+  // 模糊必须读原始像素，所以只在调用方给了位图时才测。
+  // 测不出来（没有位图 / 取不到 2D 上下文）就记 null 并跳过，不当作「清晰」。
+  let sharpness: number | null = null
+  if (image) {
+    const measured = measureSharpness(image, face)
+    if (measured) {
+      sharpness = measured.sharpness
+      const { minSharpness, warnSharpness } = QUALITY_THRESHOLDS
+      const detail = {
+        sharpness: measured.sharpness,
+        lumaSd: measured.lumaSd,
+        minSharpness,
+      }
+      if (measured.sharpness < minSharpness) {
+        issues.push({
+          code: 'blurry',
+          severity: 'reject',
+          message:
+            '照片没有对上焦，五官边缘是糊的，关键点位置会抖，算出来的比例不可信。' +
+            '请重新对焦拍摄，或换一张更清晰的照片。',
+          detail,
+        })
+      } else if (measured.sharpness < warnSharpness) {
+        issues.push({
+          code: 'blurry',
+          severity: 'warn',
+          message: '照片略微发虚，结果的波动可能比清晰照片大一些。',
+          detail,
+        })
+      }
+    }
+  }
+
   const box = bbox(points)
   const marginX = face.width * croppedMargin
   const marginY = face.height * croppedMargin
@@ -242,5 +316,6 @@ export function checkQuality(faces: readonly FaceLandmarks[]): QualityReport {
     face: acceptable ? face : null,
     pose,
     ipd,
+    sharpness,
   }
 }
