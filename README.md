@@ -1,21 +1,47 @@
 # good-looking
 
-浏览器端人脸颜值分析。上传照片 → 本地推理 → 出分。**照片永远不离开你的设备**。
+浏览器端人脸比例分析。上传照片 → 本地推理 → 出结果。**照片永远不离开你的设备**。
 
 纯静态前端，无后端，部署在 GitHub Pages 上。
 
+## 两条链路
+
+分析在浏览器内完成，分两条**互相独立、不合并**的链路：
+
+- **面部比例度量（路线 A）** — 用 MediaPipe FaceLandmarker 的 478 个关键点计算三庭五眼、
+  面部对称性、canthal tilt、midface ratio 等几何指标，与一组人群分布对比后给一个 0-100 的
+  测量分。确定性计算，同一张图永远得到同一个分数。
+
+- **学习模型（路线 B）** — 一个 ViT-base 二分类模型，人脸对齐裁剪到 224×224 后送入
+  onnxruntime-web，输出 P(attractive)。**它不产生任何「分」**，只报告类别、概率和参照分布。
+
+两条链路并排展示但绝不合成一个数字 —— 它们量的不是一回事。合成之后就没人说得清
+「这个数字是谁说了算」。
+
+### 为什么路线 B 不给分
+
+实测：这个模型在 37 张美国国会议员官方肖像（全部是清晰正脸的专业证件照）上的
+P(attractive) 中位数只有 **0.123**，只有 7/37 超过 0.5。直接线性映射成 0-100 分，
+等于给所有人一个稳定的低分，而低的原因和脸无关 —— 训练数据是名人颜值图，
+和人像证件照的分布差得很远。
+
+它能用，但只能当**相对**指标用：同一人不同照片之间的差异很小（对齐后组内极差 0.026，
+组间标准差 0.213），所以排序是稳的；绝对高低和长相好坏没有可靠对应。
+
+详细数据在 `CLAUDE.md`。
+
 ## 状态
 
-早期开发中，尚未可用。
+功能完整，两条路线端到端跑通。未部署。
 
-## 计划中的能力
+## 模型托管
 
-分析在浏览器内完成，分两条互补的链路：
+量化后的模型是 54 MB 的 ONNX（动态 INT8 + MatMulNBits 4-bit weight-only），
+随仓库走 `public/models/`，经 GitHub Pages 同源发布。代价是仓库多 54 MB。
 
-- **面部比例度量** — 用 MediaPipe FaceMesh 的 478 个关键点计算三庭五眼、面部对称性、
-  canthal tilt、midface ratio 等几何指标。确定性计算，同一张图永远得到同一个分数。
-- **学习模型评分** — 基于 ViT 的二分类模型（Apache-2.0），输出「好看概率」。
-  需要人脸对齐后送入推理。
+换成外部 CDN 只需填 `src/model/classifier.ts` 里的 `MODEL_MIRRORS` ——
+回退链本身已经写好并测过。下载走 Cache API 缓存，命中时一个请求都不发
+（实测首次 542 ms → 再次 62 ms）。
 
 ## 隐私
 
@@ -40,6 +66,19 @@ pnpm preview  # 预览构建产物
 - 学习模型：[dima806/attractive_faces_celebs_detection](https://huggingface.co/dima806/attractive_faces_celebs_detection)（Apache-2.0），
   base 为 [google/vit-base-patch16-224-in21k](https://huggingface.co/google/vit-base-patch16-224-in21k)
 - 几何指标的美学约定参考公开的面部美学文献
+
+### 对上游模型做过的改动
+
+Apache-2.0 要求标注改动。`public/models/attractive.int4.onnx` 来自上面那个仓库，
+我们改了三处：
+
+1. 导出为 ONNX opset 17，LogitsOnly 包装（去掉 HuggingFace 的 head 之外输出），
+   动态 batch 维、固定 224×224 输入；
+2. 动态 INT8 量化，再用 MatMulNBits 对权重做 4-bit weight-only 量化；
+3. 输入归一化在预处理里完成（`x/127.5 - 1`），模型本身只收已归一化的张量。
+
+**注意**：仓库目前没有 LICENSE 文件。发布前需要决定本项目的许可，
+并按 Apache-2.0 的要求随模型附上许可证副本。
 
 ## 免责声明
 
