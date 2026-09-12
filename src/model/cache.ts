@@ -127,12 +127,27 @@ async function writeCache(url: string, bytes: ArrayBuffer): Promise<void> {
  *
  * 用手工 reader 循环而不是 `res.arrayBuffer()`：后者要等全部下载完才返回，
  * 中间拿不到任何进度。
+ *
+ * ⚠️ **响应被压缩时 `Content-Length` 不能当分母。** 这是部署到 GitHub Pages
+ * 之后才暴露的一个坑（本地 dev / preview 都不会压缩，所以本地永远看不到）：
+ * Pages 对 `.onnx` 会带上 `content-encoding: gzip` 和一个 **52734767**（压缩后）的
+ * `Content-Length`，而 `reader.read()` 拿到的每个分片都是**解压后**的字节，
+ * 加起来是 **56835454**。两者一比就是「已下载 53.8 MB / 共 50.3 MB」——
+ * received 比 total 还大，界面上看起来像坏了。
+ *
+ * 所以有内容编码时直接不给 total（`null`），界面会退化成只显示已下载多少 MB，
+ * 不显示百分比。宁可少一个百分比，也不要摆一个自相矛盾的比例给用户看。
  */
 async function readWithProgress(
   res: Response,
   onProgress?: (p: FetchProgress) => void,
 ): Promise<ArrayBuffer> {
-  const total = Number(res.headers.get('Content-Length')) || null
+  // Content-Encoding 不在 fetch 的禁止读取响应头名单里，读得到。
+  // 'identity' 是「没压缩」的正式写法，和空串一样当作没有编码
+  const encoding = (res.headers.get('Content-Encoding') ?? '').trim().toLowerCase()
+  const encoded = encoding !== '' && encoding !== 'identity'
+  const declared = Number(res.headers.get('Content-Length')) || null
+  const total = encoded ? null : declared
 
   // 没有 body（比如某些代理）时退回一次性读，至少不会挂
   if (!res.body) {
@@ -150,7 +165,13 @@ async function readWithProgress(
     if (done) break
     chunks.push(value)
     received += value.byteLength
-    onProgress?.({ received, total })
+    // 兜底：即使没有编码标记，只要收到的字节数超过了声明的总长，那个总长就一定
+    // 不是这把尺子的刻度（中间还有代理、分块传输等各种情况）。此时撤掉百分比，
+    // 而不是继续报一个 100% 以上的数
+    onProgress?.({
+      received,
+      total: total !== null && received <= total ? total : null,
+    })
   }
 
   const out = new Uint8Array(received)
