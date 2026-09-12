@@ -32,6 +32,33 @@
         模型首次加载后会缓存，之后可以离线使用。
       </section>
 
+      <!--
+        模式切换。默认「上传照片」，摄像头必须用户点了才开始 ——
+        绝不自动开摄像头。
+      -->
+      <div class="modes" role="tablist" aria-label="输入方式">
+        <button
+          type="button"
+          role="tab"
+          class="modes__tab is-active"
+          id="tab-upload"
+          aria-selected="true"
+          aria-controls="picker"
+        >
+          上传照片
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="modes__tab"
+          id="tab-live"
+          aria-selected="false"
+          aria-controls="live"
+        >
+          摄像头实时
+        </button>
+      </div>
+
       <section class="picker" id="picker">
         <label class="picker__drop" id="drop">
           <input type="file" id="file" accept="image/*" hidden />
@@ -42,6 +69,9 @@
           </span>
         </label>
       </section>
+
+      <!-- 实时取景面板的内容全部由 src/ui/live.ts 构建 -->
+      <section class="live" id="live" hidden></section>
 
       <section class="status" id="status" hidden aria-live="polite"></section>
 
@@ -90,8 +120,15 @@
           更不能和上面的 /100 分对比。
         </p>
         <p>
+          <strong>「摄像头实时」是取景辅助，不是另一种测量。</strong>
+          它显示的是最近 2.5 秒的中位数和这段窗口的波动幅度，因为逐帧的分本身跳得没法看。
+          画面糊、光线暗、脸没占够像素的时候，分数照样给得出来 —— 那正是它不可信的时候，
+          所以面板会把这些情况单独提示出来。「冻结这一帧」才是按照片的方式老老实实算一遍，
+          最终要以那一次的结果为准。
+        </p>
+        <p>
           分数由程序自动算出，不构成任何评价或建议。照片全程留在你的设备上，
-          没有上传接口，也没有服务器。
+          没有上传接口，也没有服务器。摄像头画面也一样，只在浏览器内存里。
         </p>
       </footer>
     </main>

@@ -3,10 +3,13 @@
  *
  * 只用 Canvas 2D，不引第三方绘图库：要画的东西很少（点、线、文字），
  * 引一个图形库不划算，也容易和推理用的 canvas 抢上下文。
+ *
+ * 两条路径共用这一份：静态照片传 ImageBitmap，实时模式传 `<video>`。
+ * 两者都是 `CanvasImageSource`，`drawImage` 一视同仁，所以不需要分叉。
  */
 
 import { LM } from '../face/indices.ts'
-import type { FaceLandmarks } from '../face/types.ts'
+import type { FaceLandmarks, Point3 } from '../face/types.ts'
 import type { AnalysisResult } from '../engine/index.ts'
 import type { MetricId } from '../engine/metrics.ts'
 
@@ -34,40 +37,81 @@ export interface OverlayOptions {
   maxWidth?: number
   /** 是否把 478 个关键点都画出来 */
   showAllPoints?: boolean
+  /**
+   * 用这些点作图，而不是 `face.pixels`。
+   *
+   * 实时模式传的是 EMA 平滑过的点（原始点每帧都在抖，看起来像检测不稳），
+   * 但**分数用的始终是未平滑的那一帧** —— 叠加层是取景辅助，不是测量结果。
+   */
+  points?: readonly Point3[]
+}
+
+/**
+ * 按底图尺寸设好画布的像素尺寸与 CSS 尺寸。
+ *
+ * **尺寸没变就直接返回，一个字节都不动。** 给 `canvas.width` 重新赋值（哪怕赋的
+ * 是同一个数）会重新分配后备存储并丢掉合成图层 —— 在 dpr=2、宽 620 时那是约
+ * 3.5MB，实时模式每秒做十几次是纯粹的浪费。所以判定放在这个函数里，
+ * `drawOverlay` 每帧无脑调它就行。
+ *
+ * @returns 是否真的重设了
+ */
+export function syncCanvasSize(
+  canvas: HTMLCanvasElement,
+  srcW: number,
+  srcH: number,
+  maxWidth = 620,
+): boolean {
+  const cssW = Math.min(maxWidth, srcW)
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  const w = Math.round(cssW * dpr)
+  const h = Math.round((srcH / srcW) * cssW * dpr)
+  const styleW = `${cssW}px`
+
+  if (canvas.width === w && canvas.height === h && canvas.style.width === styleW) return false
+
+  canvas.width = w
+  canvas.height = h
+  canvas.style.width = styleW
+  canvas.style.maxWidth = '100%'
+  return true
 }
 
 /**
  * 把底图和标注一起画到 canvas。
  * canvas 的像素尺寸按设备像素比放大，保证高分屏上不糊。
+ *
+ * @param result 分项分。实时模式在样本还没攒够时拿不到，传 null ——
+ *   这时测量段一律画成灰色（`scoreColor(NaN)`），而几何标注照常有用。
  */
 export function drawOverlay(
   canvas: HTMLCanvasElement,
-  image: ImageBitmap,
+  image: CanvasImageSource,
   face: FaceLandmarks,
-  result: AnalysisResult,
+  result: AnalysisResult | null,
   opts: OverlayOptions = {},
 ): void {
   const { maxWidth = 620, showAllPoints = true } = opts
+  const pts = opts.points ?? face.pixels
   const srcW = face.width
   const srcH = face.height
-  const cssW = Math.min(maxWidth, srcW)
-  const dpr = Math.min(window.devicePixelRatio || 1, 2)
 
-  canvas.width = Math.round(cssW * dpr)
-  canvas.height = Math.round((srcH / srcW) * cssW * dpr)
-  canvas.style.width = `${cssW}px`
-  canvas.style.maxWidth = '100%'
+  // 尺寸没变时这是个空操作，见 syncCanvasSize
+  syncCanvasSize(canvas, srcW, srcH, maxWidth)
 
   const ctx = canvas.getContext('2d')
   if (!ctx) return
+
+  const cssW = Math.min(maxWidth, srcW)
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
 
   // 之后一律在「原图坐标系」里作图，缩放交给变换矩阵
   ctx.setTransform(dpr * (cssW / srcW), 0, 0, dpr * (cssW / srcW), 0, 0)
   ctx.clearRect(0, 0, srcW, srcH)
   ctx.drawImage(image, 0, 0, srcW, srcH)
 
-  const top = face.pixels[LM.foreheadTop]
-  const chin = face.pixels[LM.chin]
+  const top = pts[LM.foreheadTop]
+  const chin = pts[LM.chin]
   if (!top || !chin) return
 
   const axisAngle = Math.atan2(chin.y - top.y, chin.x - top.x)
@@ -76,21 +120,21 @@ export function drawOverlay(
   const ny = Math.cos(axisAngle)
 
   const scoreOf = (id: MetricId): number =>
-    result.metrics.find((m) => m.id === id)?.score ?? Number.NaN
+    result?.metrics.find((m) => m.id === id)?.score ?? Number.NaN
 
   // ---- 478 个关键点：很淡，作为「确实检测到了」的视觉证据 ----
   if (showAllPoints) {
     ctx.fillStyle = 'rgba(110, 168, 254, 0.3)'
     const dot = Math.max(0.8, srcW / 1000)
-    for (const p of face.pixels) {
+    for (const p of pts) {
       ctx.beginPath()
       ctx.arc(p.x, p.y, dot, 0, Math.PI * 2)
       ctx.fill()
     }
   }
 
-  const ca = face.pixels[LM.contourA]
-  const cb = face.pixels[LM.contourB]
+  const ca = pts[LM.contourA]
+  const cb = pts[LM.contourB]
   const halfWidth = ca && cb ? Math.hypot(ca.x - cb.x, ca.y - cb.y) / 2 : srcW * 0.15
 
   // ---- 中轴 ----
@@ -112,7 +156,7 @@ export function drawOverlay(
   const levelColors = [upperColor, upperColor, lowerColor, lowerColor]
 
   AXIAL_LEVELS.forEach((index, k) => {
-    const p = face.pixels[index]
+    const p = pts[index]
     if (!p) return
     ctx.save()
     ctx.strokeStyle = levelColors[k]!
@@ -127,8 +171,8 @@ export function drawOverlay(
 
   // ---- 横向测量段 ----
   for (const seg of SEGMENTS) {
-    const a = face.pixels[seg.from]
-    const b = face.pixels[seg.to]
+    const a = pts[seg.from]
+    const b = pts[seg.to]
     if (!a || !b) continue
     const color = scoreColor(scoreOf(seg.metric))
     ctx.save()
@@ -151,8 +195,8 @@ export function drawOverlay(
   }
 
   // ---- 眼距：内眼角间距 + 瞳距基准（所有长度的单位）----
-  const innerA = face.pixels[LM.eyeInnerA]
-  const innerB = face.pixels[LM.eyeInnerB]
+  const innerA = pts[LM.eyeInnerA]
+  const innerB = pts[LM.eyeInnerB]
   if (innerA && innerB) {
     ctx.save()
     ctx.strokeStyle = scoreColor(scoreOf('interCanthalOverIPD'))
@@ -164,8 +208,8 @@ export function drawOverlay(
     ctx.restore()
   }
 
-  const irisA = face.pixels[LM.irisA]
-  const irisB = face.pixels[LM.irisB]
+  const irisA = pts[LM.irisA]
+  const irisB = pts[LM.irisB]
   if (irisA && irisB) {
     ctx.save()
     ctx.strokeStyle = 'rgba(255,255,255,0.9)'

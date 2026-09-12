@@ -72,10 +72,43 @@ body {
   color: var(--accent);
 }
 
+/* ---------- 模式切换 ---------- */
+
+.modes {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 2rem;
+  padding: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: fit-content;
+}
+
+.modes__tab {
+  padding: 0.4rem 0.95rem;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.modes__tab:hover {
+  color: var(--text);
+}
+
+.modes__tab.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  color: var(--text);
+}
+
 /* ---------- 选择文件 ---------- */
 
 .picker {
-  margin-top: 1.75rem;
+  margin-top: 1.25rem;
 }
 
 .picker__drop {
@@ -114,6 +147,227 @@ body {
   font-size: 0.83rem;
   color: var(--text-faint);
   max-width: 28rem;
+}
+
+/* ---------- 摄像头实时 ---------- */
+
+.live {
+  margin-top: 1.25rem;
+}
+
+.live__stage {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 12rem;
+}
+
+/*
+  <video> 只是取帧的源，画面由 canvas 呈现 —— 保证「看到的那一帧就是被测量的
+  那一帧」。不能用 display:none：部分浏览器会因此停止解码，rVFC 就不再触发。
+*/
+.live__source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.live__canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 7px;
+}
+
+.live__canvas:not(.is-ready) {
+  display: none;
+}
+
+.live__placeholder {
+  margin: 0;
+  padding: 2rem 1rem;
+  color: var(--text-faint);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.live__hint {
+  position: absolute;
+  left: 1.1rem;
+  right: 1.1rem;
+  bottom: 1.1rem;
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.live__hint.is-warn {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  color: var(--warn);
+}
+
+.live__hint:empty {
+  display: none;
+}
+
+.live__panel {
+  margin-top: 1rem;
+}
+
+.live__score {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.live__num {
+  font-size: 2.4rem;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.live__unit {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}
+
+.live__unc {
+  color: var(--text-dim);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.live__score.is-stale .live__num,
+.live__score.is-stale .live__unc {
+  color: var(--text-faint);
+}
+
+.live__badge {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+.live__badge.is-stable {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 50%, var(--border));
+}
+
+.live__badge.is-noisy {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 50%, var(--border));
+}
+
+.live__badge.is-stale,
+.live__badge.is-measuring {
+  color: var(--text-faint);
+}
+
+.live__badge:empty {
+  display: none;
+}
+
+.live__note,
+.live__debug,
+.live__explainer {
+  margin: 0.5rem 0 0;
+  font-size: 0.83rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.live__debug {
+  color: var(--text-faint);
+}
+
+.live__explainer {
+  margin-top: 0.9rem;
+  max-width: 40rem;
+  line-height: 1.7;
+}
+
+.live__explainer strong {
+  color: var(--text-dim);
+}
+
+.live__status {
+  margin: 0.7rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: 9px;
+  font-size: 0.86rem;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.live__status.is-error {
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
+  background: color-mix(in srgb, var(--bad) 10%, var(--surface));
+  color: var(--text);
+}
+
+.live__error {
+  margin: 0.7rem 0 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 9px;
+  font-size: 0.86rem;
+  line-height: 1.7;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bad) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--border));
+}
+
+.live__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.live__btn {
+  padding: 0.5rem 1.1rem;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.live__btn:hover:not(:disabled) {
+  border-color: var(--text-faint);
+}
+
+.live__btn--primary {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.live__btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 26%, var(--surface-2));
+}
+
+.live__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* ---------- 状态提示 ---------- */

@@ -57,3 +57,40 @@ export async function prepareImage(source: Blob, maxDim = MAX_DIM): Promise<Prep
 
   return { bitmap: scaled, width, height, scale: width / originalWidth }
 }
+
+/**
+ * 抓视频的一帧，走和照片**完全相同**的处理（同样的降采样上限、同样的坐标语义）。
+ *
+ * 两条路径必须一致，否则同一个取景下「实时」和「冻结」会给出不同的判定 ——
+ * 而冻结的全部意义就是「把此刻看到的那一帧按照片的方式仔细算一遍」。
+ *
+ * 与 `prepareImage` 的区别是不做「先解码探尺寸」那一步：`videoWidth` 就是原始
+ * 尺寸，而且对视频两次 `createImageBitmap` 可能抓到**不同的两帧**。
+ */
+export async function prepareVideoFrame(
+  video: HTMLVideoElement,
+  maxDim = MAX_DIM,
+): Promise<PreparedImage> {
+  const originalWidth = video.videoWidth
+  const originalHeight = video.videoHeight
+  if (originalWidth <= 0 || originalHeight <= 0) {
+    // 元数据还没到。调用方应当先等 loadedmetadata —— 否则所有像素坐标都会是 0，
+    // 最后只会得到一句和真实原因对不上的「瞳距无效」
+    throw new Error('视频尺寸还是 0，无法抓帧')
+  }
+
+  const [width, height] = fitWithin(originalWidth, originalHeight, maxDim)
+
+  // 1920×1080 的摄像头会被这里降到 1280×720，和上传路径同一个上限
+  const bitmap =
+    width === originalWidth && height === originalHeight
+      ? await createImageBitmap(video)
+      : await createImageBitmap(video, {
+          resizeWidth: width,
+          resizeHeight: height,
+          resizeQuality: 'high',
+        })
+
+  return { bitmap, width, height, scale: width / originalWidth }
+}
+

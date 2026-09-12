@@ -132,12 +132,33 @@ interface Candidate {
 }
 
 /**
+ * 两个后端全失败时的说法。
+ *
+ * ⚠️ 别直接抛「两个后端都初始化失败」：实测最常见的真实原因是**资源根本没下下来**
+ * （离线、CDN 被挡、代理断流），而 MediaPipe 的 wasm/tflite 加载失败抛的是
+ * `Event` 而不是 `Error` —— 消息是空的，冒到界面上就成了一句
+ * 「GPU 与 CPU 两个后端都初始化失败」，用户完全不知道该去查网络。
+ * 这和 CLAUDE.md 里记的那两个坑是同一类：报错信息指向的地方不是真正出问题的地方。
+ *
+ * 判据「抛出来的不是 Error」是个**启发式**，不是铁证：真遇到 wasm 构建本身坏掉
+ * 也会是这个样子。所以措辞用「最常见的原因是…」，不把话说死。
+ */
+function describeTotalFailure(errors: readonly unknown[]): string {
+  const opaque = errors.length > 0 && errors.every((e) => !(e instanceof Error))
+  if (opaque) {
+    return '人脸检测引擎没能加载：GPU 与 CPU 两个后端都失败了，最常见的原因是模型文件没下载成功。请检查网络（或代理）后重试。'
+  }
+  return 'GPU 与 CPU 两个后端都初始化失败'
+}
+
+/**
  * 两个后端各建一次并测速，返回更快的那个。
  * 任何一侧建不起来（GPU 在部分驱动上会失败）都不算错误，只是不参与比较。
  */
 async function chooseByBenchmark(probe: ImageBitmap): Promise<Candidate> {
   const candidates: Array<Delegate> = ['GPU', 'CPU']
   let best: Candidate | null = null
+  const failures: unknown[] = []
 
   for (const delegate of candidates) {
     let landmarker: FaceLandmarker
@@ -145,6 +166,7 @@ async function chooseByBenchmark(probe: ImageBitmap): Promise<Candidate> {
       landmarker = await create(delegate, 'IMAGE')
     } catch (err) {
       console.warn(`[face] ${delegate} 后端初始化失败，跳过：`, err)
+      failures.push(err)
       continue
     }
 
@@ -153,6 +175,7 @@ async function chooseByBenchmark(probe: ImageBitmap): Promise<Candidate> {
       msPerFrame = timeDetect(landmarker, probe)
     } catch (err) {
       console.warn(`[face] ${delegate} 后端推理失败，跳过：`, err)
+      failures.push(err)
       landmarker.close()
       continue
     }
@@ -165,7 +188,7 @@ async function chooseByBenchmark(probe: ImageBitmap): Promise<Candidate> {
     }
   }
 
-  if (!best) throw new Error('GPU 与 CPU 两个后端都初始化失败')
+  if (!best) throw new Error(describeTotalFailure(failures))
   return best
 }
 
