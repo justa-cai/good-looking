@@ -9,6 +9,10 @@
    - 不能用需要服务端的路由（用 hash 路由或单页）；
    - Vite `base` 必须是 `/<repo-name>/`，否则 GitHub Pages 子路径下资源全 404。
 3. **可公开再分发**：仓库是公开的，任何入库的代码/权重/资产都必须许可证干净。
+   本项目代码是 **MIT**（根目录 `LICENSE`）；唯一入库的二进制
+   `public/models/attractive.int4.onnx` 是 Apache-2.0 的**衍生作品**（不是原创），
+   来源、改动和许可证全文在 `THIRD_PARTY_NOTICES.md` ——
+   **往仓库里加任何新二进制之前先看那一份**。
 
 ## 两条推理路线
 

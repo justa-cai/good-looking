@@ -107,8 +107,11 @@ Apache-2.0 要求标注改动。`public/models/attractive.int4.onnx` 来自上�
 2. 动态 INT8 量化，再用 MatMulNBits 对权重做 4-bit weight-only 量化；
 3. 输入归一化在预处理里完成（`x/127.5 - 1`），模型本身只收已归一化的张量。
 
-**注意**：仓库目前没有 LICENSE 文件。发布前需要决定本项目的许可，
-并按 Apache-2.0 的要求随模型附上许可证副本。
+本项目代码以 **MIT** 发布，见 [LICENSE](LICENSE)。
+
+随仓库再分发的那个 56.8 MB 模型是**衍生作品**，不是原创产出：它的上游和上游的上游
+都是 Apache-2.0。来源、我们对它做过的三处改动，以及 Apache-2.0 全文，都在
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 里。
 
 ## 免责声明
 
