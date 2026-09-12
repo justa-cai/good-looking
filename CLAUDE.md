@@ -362,6 +362,47 @@ block-wise 每 32 个权重一个 scale，比 int8 逐通道一整个 scale 更�
 
 **将来如果拿到训练集的裁剪统计，应该用那个数字替换它**，并重跑上面两张表。
 
+### 推理封装（`src/model/classifier.ts`）
+
+后端选择和 MediaPipe 那边同一套思路：有 `navigator.gpu` 就把 webgpu 和 wasm
+各建一次、各测一次速（预热 1 次 + 计时 2 次），快的留下，另一个 release。
+WebGPU 建不起来（没适配器）不算错误，只是不参与比较。
+
+**已核实的行为（2026-09-12，本机 headless Chromium）**：
+
+- `'gpu' in navigator` 是 **true**，但 `requestAdapter()` 返回 **null** ——
+  所以「有 navigator.gpu」**不等于**「能用 WebGPU」。
+  只按 `navigator.gpu` 判断会走到一个必然失败的建会话路径，
+  所以代码是「尝试 → 失败就跳过」而不是「先判断再决定」；
+- 回退路径实测走通：webgpu 抛 `Failed to get GPU adapter`，
+  被 catch 掉、打一条 warn、继续用 wasm，**不影响出分**；
+- 整条加载（下载 54MB + 建会话 + 测速）7.6 s，纯推理 **1.87 s**（单线程 WASM）；
+- ⚠️ **WebGPU 这条路在本机测不了**（没有适配器），和「本机 GPU 性能数据不可信」
+  是同一个限制。要在有真实 GPU 的机器上验证。
+
+`ort.env.wasm.numThreads = 1` 是**显式**写死的，不是靠自动退化。
+GitHub Pages 没有 COOP/COEP，SharedArrayBuffer 不可用，多线程会退化成单线程 ——
+但退化路径和显式单线程在内存分配、构建产物上并不完全一样。
+显式写死才能保证本地和线上表现一致。
+
+### 已核实：JS 预处理与 Python 端数值一致
+
+`src/model/classifier.ts` 的归一化（`x/127.5 - 1`）和 Python 端
+`AutoImageProcessor` 必须给出同一个数，否则模型在网页上和在标定脚本里
+就不是一个东西。用 37 张样本对跑（JS 走 int4 + 浏览器缩放，
+Python 走 fp32 + PIL 缩放）：
+
+| 统计量 | 值 |
+|---|---|
+| 样本 | 37 / 37 全部匹配 |
+| \|ΔP(attractive)\| 中位 | 0.0097 |
+| \|ΔP(attractive)\| 最大 | 0.0453 |
+
+量级是对的 —— int4 量化**本身**就有 |ΔP| 中位 0.0039 / 最大 0.0314 的误差
+（见上面的量化表），剩下的差额来自两边缩放实现不同
+（canvas 的双线性 vs PIL 的 resample）。**不是预处理对不上**：
+真对不上的话差值会是 0.1 以上量级。
+
 ## 模型资产管理
 
 权重**不入库**（`.gitignore` 已排除 `*.onnx` / `*.safetensors` / `*.pth`）。理由：仓库体积、
@@ -393,10 +434,12 @@ good-looking/
 ### 路线 B 的流水线顺序
 
 ```
-export_onnx.py      →  tmp/models/attractive.onnx          （导出 + 数值一致性验证）
-quantize_onnx.py    →  tmp/models/attractive.int4.onnx     （量化 + 排序一致性验证）
-score_corpus.py     →  模型输出分布的基线（回答「能不能当分数用」）
-align_probe.js      →  对齐效果的验证（回答「对齐有没有用」）
+export_onnx.py        →  tmp/models/attractive.onnx           （导出 + 数值一致性验证）
+quantize_onnx.py      →  tmp/models/attractive.int4.onnx      （量化 + 排序一致性验证）
+score_corpus.py       →  模型输出分布的基线（回答「能不能当分数用」）
+align_probe.js        →  对齐效果的验证（回答「对齐有没有用」）
+classifier_probe.js   →  网页端封装的输出
+  └ verify_js_vs_py.py → 与 Python 端比对（回答「预处理有没有写错」）
 ```
 
 每个脚本跑完都会打印自检结果，**看到 FAIL 或者 ρ 掉下来就先别往下走**。
