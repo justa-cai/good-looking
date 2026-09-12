@@ -35,11 +35,20 @@ export type CameraFailure =
 
 export class CameraError extends Error {
   readonly failure: CameraFailure
+  /**
+   * 浏览器抛出的**原始**错误。
+   *
+   * 必须留着。我们映射出来的文案是给用户看的，而这里才是排查时唯一能看的东西：
+   * 丢了它，出问题时控制台里只剩一句我们自己编的话，连到底是 `NotFoundError`
+   * 还是 `NotAllowedError` 都分不出来 —— 而这两种的处置完全不同。
+   */
+  readonly original: unknown
 
-  constructor(failure: CameraFailure, message: string) {
+  constructor(failure: CameraFailure, message: string, original?: unknown) {
     super(message)
     this.name = 'CameraError'
     this.failure = failure
+    this.original = original
   }
 }
 
@@ -130,7 +139,16 @@ export async function startCamera(
   try {
     stream = await navigator.mediaDevices.getUserMedia(CONSTRAINTS)
   } catch (err) {
-    throw await mapGetUserMediaError(err)
+    const mapped = await mapGetUserMediaError(err)
+    // 摄像头是**唯一**一种「失败原因在用户那台机器上、而我们这边什么都看不到」的
+    // 输入：报错只有一两个没有信息量的名字，本地又复现不了。所以失败时把能观察到的
+    // 东西一次性打出来 —— 用户贴回来就能分清是系统权限、设备被占、还是浏览器
+    // 沙箱里根本没有设备，而不是靠猜。
+    console.error(
+      `[good-looking] 打开摄像头失败（${mapped.failure}）：${mapped.message}\n环境诊断：\n${await describeCameraSupport()}`,
+      err,
+    )
+    throw mapped
   }
 
   const track = stream.getVideoTracks()[0]
@@ -247,7 +265,11 @@ function waitForMetadata(
  * 关键点：`NotAllowedError` **同时**表示「用户拒绝了」和「系统层面禁用了摄像头」
  * （Windows 的隐私设置、macOS 的屏幕使用时间限制都会走到这里），而这两种的
  * 处置完全不同。用 `enumerateDevices()` 来区分 —— 它不需要权限就能列出设备种类，
- * 一个 videoinput 都没有就说明是「本机没有摄像头」，不是用户拒绝。
+ * 一个 videoinput 都没有就说明这台机器上浏览器看不到任何摄像头。
+ *
+ * ⚠️ 措辞上的纪律：**只说自己确知的事**。我们能确知的是「浏览器没能打开任何摄像头」，
+ * 不确知用户桌上到底摆没摆一个摄像头 —— 系统权限、别的程序独占、浏览器跑在沙箱里
+ * 都会让我们看不到它。所以文案要把这些可能性摆出来，而不是断言「你没有摄像头」。
  */
 async function mapGetUserMediaError(err: unknown): Promise<CameraError> {
   if (err instanceof CameraError) return err
@@ -260,42 +282,55 @@ async function mapGetUserMediaError(err: unknown): Promise<CameraError> {
       if (!(await hasVideoInput())) {
         return new CameraError(
           'no-camera',
-          '没有找到可用的摄像头。如果是台式机，请确认摄像头已经接好；也要检查系统的隐私设置里有没有允许浏览器使用摄像头。',
+          '浏览器看不到任何可用的摄像头。最可能的原因是系统还没允许浏览器使用摄像头（macOS 的「隐私与安全性 → 摄像头」、Windows 的「隐私和安全性 → 相机」），也可能是摄像头正被别的程序独占。确认之后刷新页面再试。控制台里有一条环境诊断，可据此进一步定位。',
+          err,
         )
       }
       const state = await cameraPermissionState()
       if (state === 'denied') {
         return new CameraError(
           'denied',
-          '摄像头权限被拒绝了。这个设置会**记住**，再点一次「开始」不会重新弹窗 —— 请点地址栏左侧的图标，把摄像头改回「允许」，然后刷新页面。',
+          '摄像头权限被拒绝了。这个设置会被浏览器记住，再点一次「开始」不会重新弹窗 —— 请点地址栏左侧的图标，把摄像头改回「允许」，然后刷新页面。',
+          err,
         )
       }
       return new CameraError(
         'denied',
         '没能拿到摄像头权限。可能是刚才的弹窗被关掉了，也可能是系统层面禁用了浏览器使用摄像头。确认之后请再试一次。',
+        err,
       )
     }
     case 'NotFoundError':
     case 'DevicesNotFoundError':
-      return new CameraError('no-camera', '没有找到可用的摄像头。')
+      return new CameraError(
+        'no-camera',
+        '浏览器没能找到任何摄像头。常见原因是系统还没允许浏览器使用摄像头（macOS 的「隐私与安全性 → 摄像头」、Windows 的「隐私和安全性 → 相机」），或者摄像头正被别的程序独占着。确认之后刷新页面再试。控制台里有一条环境诊断，可据此进一步定位。',
+        err,
+      )
     case 'NotReadableError':
     case 'TrackStartError':
       return new CameraError(
         'unavailable',
         '摄像头打不开，多半是正被别的程序（视频会议、录屏软件）占用。关掉它们再试。',
+        err,
       )
     case 'OverconstrainedError':
     case 'ConstraintNotSatisfiedError':
       return new CameraError(
         'constraints',
         `摄像头满足不了所需的分辨率（${detail}）。请换一个摄像头，或改用在其他设备上打开。`,
+        err,
       )
     case 'SecurityError':
-      return new CameraError('insecure', '浏览器出于安全策略拒绝了摄像头访问。请用 https 或 localhost 打开。')
+      return new CameraError(
+        'insecure',
+        '浏览器出于安全策略拒绝了摄像头访问。请用 https 或 localhost 打开。',
+        err,
+      )
     case 'AbortError':
-      return new CameraError('unavailable', '摄像头启动被中断，请重试。')
+      return new CameraError('unavailable', '摄像头启动被中断，请重试。', err)
     default:
-      return new CameraError('unknown', `打开摄像头失败：${detail}`)
+      return new CameraError('unknown', `打开摄像头失败：${detail}`, err)
   }
 }
 
@@ -309,6 +344,58 @@ async function hasVideoInput(): Promise<boolean> {
     // 就把「用户拒绝授权」误报成「本机没摄像头」，那是两个完全不同的处置
     return true
   }
+}
+
+/**
+ * 摄像头相关的环境诊断，**只在启动失败时采集并打印**。
+ *
+ * 为什么值得写这么一段：摄像头失败的现场在**用户那台机器上**，我们这边
+ * 什么信号都收不到，而 `getUserMedia` 只给一两个没有信息量的错误名 ——
+ * 本地又几乎不可能复现（本机就压根没有摄像头，一直以来只能用假摄像头测）。
+ * 把能观察到的东西一次性打全，用户贴回来就能定位，不用来回猜。
+ */
+export async function describeCameraSupport(): Promise<string> {
+  const lines: string[] = []
+  const put = (k: string, v: unknown): void => {
+    lines.push(`  ${k}: ${String(v)}`)
+  }
+
+  put('isSecureContext', typeof isSecureContext === 'boolean' ? isSecureContext : '未知')
+  // 带上 UA 就是为了知道「是哪台机器上的哪个浏览器」—— 同一句报错在
+  // macOS 系统权限、Windows 隐私开关、Linux 的 snap 沙箱下含义完全不同
+  put('userAgent', typeof navigator !== 'undefined' ? navigator.userAgent : '未知')
+  put('mediaDevices 存在', typeof navigator !== 'undefined' && !!navigator.mediaDevices)
+  put('getUserMedia 可用', isCameraSupported())
+
+  if (navigator?.mediaDevices?.enumerateDevices) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const counts = new Map<string, number>()
+      for (const d of devices) counts.set(d.kind, (counts.get(d.kind) ?? 0) + 1)
+      put(
+        '设备计数',
+        [...counts].map(([kind, n]) => `${kind}×${n}`).join('、') || '一个都没有',
+      )
+      const video = devices.filter((d) => d.kind === 'videoinput')
+      put(
+        '摄像头',
+        video.map((d) => d.label || '(无标签)').join(' | ') ||
+          '一个都没有（系统权限、设备被独占、或浏览器跑在沙箱里都会是这样）',
+      )
+    } catch (err) {
+      put('enumerateDevices', `失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  try {
+    // 'camera' 在当前的 TS lib.dom 里还不在 PermissionName 联合类型里
+    const status = await navigator.permissions.query({ name: 'camera' as PermissionName })
+    put('站点权限状态', status.state)
+  } catch (err) {
+    put('站点权限状态', `查不到（${err instanceof Error ? err.name : String(err)}）`)
+  }
+
+  return lines.join('\n')
 }
 
 /**
