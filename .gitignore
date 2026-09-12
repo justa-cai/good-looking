@@ -21,13 +21,19 @@ __pycache__/
 venv/
 *.egg-info/
 
-# 模型权重：不入库，见 CLAUDE.md「模型资产管理」
+# 模型权重：默认不入库，见 CLAUDE.md「模型资产管理」
+# 唯一的例外是下面显式放行的那一个 —— 它是**部署产物**，随站点一起发布，
+# 所以必须进仓库；其余中间产物（fp32 的、int8 的、别人的）一律不进。
 *.onnx
 *.onnx.data
 *.safetensors
 *.pth
 *.bin
 !public/models/.gitkeep
+
+# 路线 B 的量化模型：54 MB，随 GitHub Pages 同源发布。
+# 放行的理由和代价都写在 CLAUDE.md「模型资产管理」里，改之前先读那一节。
+!public/models/attractive.int4.onnx
 
 # 编辑器 / 系统
 .vscode/*

@@ -38,7 +38,7 @@
 
   const t0 = performance.now()
   await cl.loadClassifier({
-    url: MODEL,
+    urls: [MODEL],
     onStage: (s) => console.info('[classifier] stage', s),
     onProviderChosen: (p, ms) => console.info('[classifier] provider', p, ms),
   })

@@ -10,6 +10,7 @@
  */
 
 import * as ort from 'onnxruntime-web'
+import { fetchModelBytes, type FetchProgress } from './cache.ts'
 
 /**
  * ONNX Runtime 的 wasm 二进制走 CDN，不打包进产物。
@@ -28,8 +29,16 @@ export const INPUT_SIZE = 224
 export type Provider = 'webgpu' | 'wasm'
 
 export interface ClassifierLoadOptions {
-  /** 模型地址。托管策略见任务 #12；不给则用默认路径。 */
-  url?: string
+  /**
+   * 候选模型地址，**按优先级排列**，取到第一个能用的为止。
+   * 不给则用 `defaultModelUrls()`。
+   *
+   * 之所以是数组：模型 54 MB，托管方任何一个环节抽风都不该让功能整体不可用。
+   * 托管决策见 CLAUDE.md「模型资产管理」。
+   */
+  urls?: readonly string[]
+  /** 下载进度。只在真正走网络时回调；命中缓存会直接报一次 100%。 */
+  onProgress?: (progress: FetchProgress) => void
   /**
    * 后端选择。默认 'auto'：可用就两个都建、各测一次速，快的留下。
    *
@@ -42,6 +51,8 @@ export interface ClassifierLoadOptions {
   onProviderChosen?: (provider: Provider, msPerRun: number) => void
   /** 'auto' 模式用来测速的脸图（对齐后的裁剪）。不给则退回 WASM。 */
   probe?: ImageBitmap
+  /** 取消下载。已经下到一半的部分不会进缓存。 */
+  signal?: AbortSignal
 }
 
 export type ClassifierLoadStage = 'model' | 'benchmark' | 'ready'
@@ -122,8 +133,11 @@ async function timeRun(sess: ort.InferenceSession, bitmap: ImageBitmap, runs = 2
   return (performance.now() - t0) / runs
 }
 
-async function create(provider: Provider, url: string): Promise<ort.InferenceSession> {
-  return ort.InferenceSession.create(url, {
+async function create(provider: Provider, bytes: ArrayBuffer): Promise<ort.InferenceSession> {
+  // 传 ArrayBuffer 而不是 URL：字节是我们自己带进度下好、并且已经进过缓存的。
+  // 同一个 buffer 会被复用两次（benchmark 时两个后端各建一次）——
+  // ORT 只读不夺，不会把它 detach 掉。
+  return ort.InferenceSession.create(bytes, {
     executionProviders: [provider],
     // 图优化开到最大：这是离线量化的静态图，可以做常量折叠等重写
     graphOptimizationLevel: 'all',
@@ -140,7 +154,7 @@ interface Candidate {
  * 可用就两个后端各建一次并测速，返回更快的那个。
  * 任何一侧建不起来（部分环境没有 WebGPU）都不算错误，只是不参与比较。
  */
-async function chooseByBenchmark(url: string, probe: ImageBitmap): Promise<Candidate> {
+async function chooseByBenchmark(bytes: ArrayBuffer, probe: ImageBitmap): Promise<Candidate> {
   // 没有 WebGPU 就别浪费时间建 —— 建失败会抛，但那是预期内的
   const hasWebGpu = typeof navigator !== 'undefined' && 'gpu' in navigator
   const wanted: Provider[] = hasWebGpu ? ['webgpu', 'wasm'] : ['wasm']
@@ -150,7 +164,7 @@ async function chooseByBenchmark(url: string, probe: ImageBitmap): Promise<Candi
   for (const provider of wanted) {
     let sess: ort.InferenceSession
     try {
-      sess = await create(provider, url)
+      sess = await create(provider, bytes)
     } catch (err) {
       console.warn(`[model] ${provider} 后端初始化失败，跳过：`, err)
       continue
@@ -187,8 +201,7 @@ export async function loadClassifier(
   if (session) return session
   if (pending) return pending
 
-  const { url, provider = 'auto', onStage, onProviderChosen } = opts
-  const modelUrl = url ?? defaultModelUrl()
+  const { urls, provider = 'auto', onStage, onProviderChosen, onProgress, signal } = opts
 
   pending = (async () => {
     ort.env.wasm.wasmPaths = ORT_WASM_BASE
@@ -201,16 +214,27 @@ export async function loadClassifier(
 
     onStage?.('model')
 
+    // 下载/读缓存放在建会话之前：54 MB 的下载要有进度，
+    // 而且同一个 buffer 要复用给 benchmark 里的多个后端。
+    const bytes = await fetchModelBytes(urls ?? defaultModelUrls(), {
+      // exactOptionalPropertyTypes 下不能直接传 undefined，只能按需带上
+      ...(onProgress ? { onProgress } : {}),
+      ...(signal ? { signal } : {}),
+    }).then((r) => {
+      console.info(`[model] 模型来自 ${r.fromCache ? '缓存' : '网络'}：${r.url}`)
+      return r.bytes
+    })
+
     let chosen: Candidate
     if (provider === 'auto' && opts.probe !== undefined) {
       onStage?.('benchmark')
-      chosen = await chooseByBenchmark(modelUrl, opts.probe)
+      chosen = await chooseByBenchmark(bytes, opts.probe)
       activeMsPerRun = chosen.msPerRun
     } else if (provider === 'auto') {
       // auto 但没给测速图：没图就只能保守选 WASM（它一定可用）
-      chosen = { provider: 'wasm', session: await create('wasm', modelUrl), msPerRun: NaN }
+      chosen = { provider: 'wasm', session: await create('wasm', bytes), msPerRun: NaN }
     } else {
-      chosen = { provider, session: await create(provider, modelUrl), msPerRun: NaN }
+      chosen = { provider, session: await create(provider, bytes), msPerRun: NaN }
     }
 
     activeProvider = chosen.provider
@@ -228,13 +252,39 @@ export async function loadClassifier(
   }
 }
 
-/** 默认模型地址。托管策略定下来之前先指到同源的 public/models/。 */
-function defaultModelUrl(): string {
-  // import.meta.env.BASE_URL 会带上 /good-looking/ 前缀，
-  // 硬编码 '/' 在 GitHub Pages 上会 404
-  const base = import.meta.env.BASE_URL
-  return `${base}models/attractive.int4.onnx`
+/** 模型文件名。`public/models/` 下就叫这个，构建后会原样出现在站点根目录。 */
+const MODEL_FILE = 'attractive.int4.onnx'
+
+/**
+ * 候选模型地址，**按优先级排列**：先同源，再镜像。
+ *
+ * 同源排第一：模型随站点一起发布（`public/models/`，见 CLAUDE.md
+ * 「模型资产管理」），本地开发和线上都走同一条路径，没有第三方依赖，
+ * 也不会有跨域问题。
+ *
+ * ⚠️ `import.meta.env.BASE_URL` 会带上 `/good-looking/` 前缀。
+ * 硬编码 `/` 在 GitHub Pages 上会 404。
+ *
+ * ⚠️ 同源这条路**必须在部署前把文件放到位**。忘了放的话不会构建失败，
+ * 只会在运行时 404 然后掉到镜像 —— 如果镜像也是空的，用户看到的就是
+ * 「模型加载失败」。CI 里有一步专门检查这个文件在不在（见 deploy.yml）。
+ */
+export function defaultModelUrls(): readonly string[] {
+  return [
+    `${import.meta.env.BASE_URL}models/${MODEL_FILE}`,
+    ...MODEL_MIRRORS.map((base) => `${base.replace(/\/+$/, '')}/${MODEL_FILE}`),
+  ]
 }
+
+/**
+ * 可选的镜像前缀。**默认为空** —— 模型是同源发布的，正常情况下用不上。
+ *
+ * 留这个口子是因为：GitHub 对单个超过 50 MB 的文件会给警告（硬上限 100 MB，
+ * 本文件 54 MB，会触发警告但能正常推送和服务）。如果哪天想把这个警告消掉、
+ * 或者仓库体积成了问题，把文件挪到别处再把前缀填进来即可，前端代码不用动。
+ * 填入的前缀会按顺序依次尝试（见 `src/model/cache.ts`）。
+ */
+export const MODEL_MIRRORS: readonly string[] = []
 
 /**
  * 对一张脸出概率。

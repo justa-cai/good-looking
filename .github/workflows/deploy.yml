@@ -48,6 +48,28 @@ jobs:
           fi
           echo "base path OK: ${BASE}"
 
+      # 路线 B 的模型是同源发布的（public/models/，54 MB）。
+      # 漏掉它不会有任何构建报错，只会在用户点开页面时静默掉到镜像 ——
+      # 而镜像默认是空的，最后的表现就是「模型加载失败」。
+      # 这种「构建全绿但功能废掉」的错误必须在这里挡住。
+      - name: Verify model asset
+        run: |
+          MODEL="dist/models/attractive.int4.onnx"
+          if [ ! -f "$MODEL" ]; then
+            echo "::error::$MODEL 不存在。确认 public/models/attractive.int4.onnx 已提交，"
+            echo "::error::并且 .gitignore 里那条 !public/models/attractive.int4.onnx 还在。"
+            ls -la dist/ || true
+            exit 1
+          fi
+          SIZE=$(stat -c%s "$MODEL")
+          echo "模型：$((SIZE / 1024 / 1024)) MB"
+          # 量化后再怎么变也不该低于 20 MB（那说明文件被截断了）；
+          # 上限按 GitHub 的硬限制 100 MB 留出余量。
+          if [ "$SIZE" -lt 20000000 ] || [ "$SIZE" -gt 90000000 ]; then
+            echo "::error::模型体积 $SIZE 字节不在预期范围内（20-90 MB），先确认文件是不是完整的"
+            exit 1
+          fi
+
       - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v5
